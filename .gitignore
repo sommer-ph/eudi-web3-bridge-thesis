@@ -1,0 +1,34 @@
+# Log- and aux files
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.lof
+*.log
+*.lot
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.xmpdata
+*.xmpi
+
+# Additional temporary files
+*.fdb_latexmk
+*.fls
+*.dvi
+*.idx
+*.ilg
+*.ind
+*.ist
+*.nav
+*.snm
+*.vrb
+*.pyg
+*.acn
+*.acr
+*.alg
+*.glg
+*.glo
+*.gls
+*.glsdefs
