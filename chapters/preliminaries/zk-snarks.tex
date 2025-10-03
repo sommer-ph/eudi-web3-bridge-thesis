@@ -1,0 +1,93 @@
+\section{\acrshort{zksnark}s}
+\label{sec:zksnarks}
+\input{figures/preliminaries/zk-snarks}
+
+\paragraph{Mathematical foundations}
+All \acrshort{zksnark} constructions operate over algebraic structures such as fields $\mathbb{F}_p$ and groups $\mathbb{G}_i$, which are assumed to be known to the reader.
+
+\paragraph{Overview and properties}
+Zero-Knowledge Succinct Non-Interactive Arguments of Knowledge (zk-SNARKs) are cryptographic proof systems that allow a prover to convince a verifier of the validity of a statement without revealing any additional information. They are widely used in privacy-preserving applications and decentralized systems due to their efficiency and confidentiality guarantees~\cite{liang2025, nitulescu2020zk}.
+
+\begin{definition}[\acrshort{zksnark}~{\cite{cryptoeprint:2022/1286, boneh2020moderncrypto}}]
+	A \textit{\acrshort{zksnark}} for a \acrfull{np} relation $R \subseteq \mathcal{X} \times \mathcal{W}$, where membership $(x, w) \in R$ can be verified in polynomial time with $x$ denoting the public statements and $w$ the private witnesses, is defined by a tuple of \acrshort{ppt} algorithms $(\texttt{Setup}, \texttt{Prove}, \texttt{Verify})$ with the following behavior:
+	
+	\begin{itemize}
+		\item $\mathsf{pp} \leftarrow \texttt{Setup}(1^\lambda, R)$: A \acrshort{ppt} algorithm that takes as input a security parameter $\lambda$ and a relation $R$, and outputs public parameters $\mathsf{pp}$.
+		
+		\item $\pi \leftarrow \texttt{Prove}(\mathsf{pp}, x, w)$: A \acrshort{ppt} algorithm that takes as input the public parameters $\mathsf{pp}$, a statement $x \in \mathcal{X}$, and a witness $w \in \mathcal{W}$ such that $(x, w) \in R$, and outputs a proof $\pi$.
+		
+		\item $b \leftarrow \texttt{Verify}(\mathsf{pp}, x, \pi)$: A deterministic algorithm that takes as input the public parameters $\mathsf{pp}$, a statement $x \in \mathcal{X}$, and a proof $\pi$, and outputs a bit $b \in \{0,1\}$, where $b = 1$ if the proof is accepted and $b = 0$ otherwise.
+	\end{itemize}
+	
+	The system satisfies the following properties:
+	\begin{description}[leftmargin=0cm]
+		\item[Completeness:] For all $(x, w) \in R$, it holds that $\texttt{Verify}(\mathsf{pp}, x, \texttt{Prove}(\mathsf{pp}, x, w)) = 1$.
+		\item[Knowledge soundness:] For any \acrshort{ppt} adversary $\mathcal{A}$ producing a statement $x \in \mathcal{X}$ and a valid proof $\pi$ such that $\texttt{Verify}(\mathsf{pp}, x, \pi) = 1$, there exists an efficient extractor $\mathcal{E}$ such that $\mathcal{E}^{\mathcal{A}}(x, \pi) = w$ with $(x, w) \in R$.
+		\item[Zero-knowledge:] There exists a simulator $\mathcal{S}$ such that for all $x \in \mathcal{X}$, the distribution of simulated proofs $\mathcal{S}(x)$ is computationally indistinguishable from the distribution of real proofs $\texttt{Prove}(\mathsf{pp}, x, w)$ for any $w$ with $(x, w) \in R$.
+		\item[Succinctness:] The size of the proof $|\pi|$ and the runtime of $\texttt{Verify}$ are both polynomial in $\lambda$ and logarithmic (or polylogarithmic) in the size of the relation $R$.
+	\end{description}
+	\label{def:zksnark}
+\end{definition}
+
+\paragraph{Public parameters}
+The public parameters $\mathsf{pp}$ generated in the setup phase are fixed once a circuit $C$ and its relation $R_C$ are specified. In Groth16 and related schemes, $\mathsf{pp}$ correspond to a circuit-specific \acrfull{crs}~\cite{groth2016size}. In universal SNARKs such as PLONK or Marlin, a single reference string can be reused across many circuits~\cite{cryptoeprint:2019/953,cryptoeprint:2019/1047}. In transparent proof systems, the parameters are generic and require no trusted setup~\cite{cryptoeprint:2018/046}. Throughout this work, we treat $\mathsf{pp}$ as globally available and omit them as explicit circuit inputs.
+
+\paragraph{Arithmetic circuits and constraint systems}
+In \acrshort{zksnark} systems, computational statements refer to claims about the correctness of a computation with respect to a given input and witness. These statements are encoded in an algebraic form that is compatible with the underlying proof system. This is typically achieved by first modeling the computation as an \textit{arithmetic circuit}, and then translating the circuit into a \textit{constraint system}~\cite{groth2016size, boneh2020moderncrypto}.
+
+\begin{definition}[Arithmetic circuit~{\cite{boneh2020moderncrypto}}]
+	An \textit{arithmetic circuit} over a finite field $\mathbb{F}$ is a directed acyclic graph whose nodes (called gates) perform either addition or multiplication over $\mathbb{F}$. The circuit has input wires, internal gates, and output wires. Each gate computes a function $g_i = a \circ b$ where $\circ \in \{+, \cdot\}$ and $a, b \in \mathbb{F}$. The circuit computes a function $f: \mathbb{F}^n \rightarrow \mathbb{F}^m$ by evaluating all gates in topological order.
+\end{definition}
+
+To enable proof generation, the arithmetic circuit must be translated into a structured set of algebraic constraints. The resulting \textit{constraint system} captures the semantics of the computation in a form that can be used by the proof system. Several types of constraint systems are commonly used in practice:
+
+A first example is the \emph{\acrfull{r1cs}}, which encodes each constraint as a quadratic equation of the form $\langle A_i, \mathbf{z} \rangle \cdot \langle B_i, \mathbf{z} \rangle = \langle C_i, \mathbf{z} \rangle$, where $\mathbf{z}$ is a vector of variables. This format is widely supported and used in systems such as Groth16 and Marlin~\cite{groth2016size}. A second category are \emph{PLONK-style constraints}, which represent computations using a more flexible constraint model that supports custom gates and permutation arguments. Such systems can express a broader class of circuits and enable aggregation and recursion~\cite{liang2025}. Finally, \emph{\acrfull{air}} are employed in STARK-based proof systems. It represents computations as state transitions in a trace table and defines algebraic constraints over those transitions. Unlike \acrshort{r1cs} or PLONK, \acrshort{air} constraints are designed for polynomial \acrfull{iop}-based verification and are particularly well-suited for scalable, transparent setups~\cite{cryptoeprint:2018/046, cryptoeprint:2019/1076}.
+
+Each constraint system imposes specific structural requirements on the modeled computation. The choice of constraint system affects both prover efficiency and compatibility with different proof systems. Figure~\ref{fig:circuit-constraint} illustrates how an arithmetic expression can be translated into a set of \acrshort{r1cs} constraints. While \acrshort{r1cs} is widely supported and commonly used in practice, the same computation could equally be expressed using alternative constraint systems such as PLONK or \acrshort{air}.
+
+\CircuitConstraintFigure
+
+Building on the above, the following definition formalizes how arithmetic circuits are used to express computational statements in \acrshort{zksnark} proofs.
+
+\begin{definition}[Circuit-based statement format~\cite{groth2016size, boneh2020moderncrypto}]
+	Let $C$ be an arithmetic circuit over a finite field $\mathbb{F}_p$, and let $x$ denote the public statement and $w$ refer to the private witness. A \acrshort{zksnark} statement is formulated as proving knowledge of $w$ such that the following equation holds:
+	\[
+	C(x, w) = 0.
+	\]
+	The verifier receives $x$ and a proof $\pi$ attesting that such a $w$ exists. The prover knows $w$ but does not reveal it. The tuple $(C, x, w)$ defines the computational statement being proven.
+\end{definition}
+
+\paragraph{Multi-precision arithmetic and input canonicalization}
+While arithmetic circuits are formally defined over a base field, many cryptographic inputs, such as elliptic-curve points or \acrshort{ecdsa} signature components, cannot be directly represented as a single field element. Their bit length typically exceeds the modulus of the target field, or they appear in encodings that are incompatible with the algebraic model. To bridge this gap, values are expressed using \emph{multi-precision arithmetic}, where an integer $N$ is decomposed in radix-$b$ representation as $N = \sum_{i=0}^{t-1} d_i \cdot b^i$, with $b$ denoting the chosen base, $d_i$ the digits in that base, and $t$ the total number of digits. This technique, which underlies many big-integer libraries and cryptographic implementations, enables large integers to be handled as vectors of field-compatible fragments~\cite{menezes1996hac}. In practical toolchains, the fragments $d_i$ are commonly referred to as \emph{limbs}, denoting the portions of a multi-precision number that fit into a single machine word~\cite{gmp}.
+
+Based on this representation, we introduce the notion of \emph{canonicalization maps} to describe deterministic encodings from structured cryptographic inputs to the canonical field representations required by a proof system. These maps guarantee that credentials, keys, and additional parameters are transformed into a uniform algebraic format before entering the circuit. Different classes of inputs may require distinct canonicalization maps, ranging from limb decompositions for large integers to direct embeddings for small bounded values. For example, the Groth16 toolchain used in this thesis primarily consumes limb-decomposed field elements, while small values can be embedded directly. Similarly, the Plonky2 toolchain employed here accepts inputs in hex-encoded form, while bounded integers are embedded directly without additional encoding. Canonicalization maps thus provide the uniform interface between high-level cryptographic data structures and the low-level algebraic circuits that enforce their validity.
+
+\paragraph{Proof systems}
+A \acrshort{zksnark} proof system defines how to generate and verify cryptographic proofs for a given computational statement, encoded as a constraint system. It typically consists of three algorithms: \texttt{Setup}, \texttt{Prove}, and \texttt{Verify}, as formalized in Definition~\ref{def:zksnark}, where zk-SNARKs are defined over NP relations. The specific implementation of these algorithms varies between proof systems such as Groth16 or PLONK, depending on the underlying mathematical model and security assumptions~\cite{groth2016size, liang2025}.
+
+The structure of the constraint system determines which proof systems are compatible. For instance, Groth16 operates over \acrshort{r1cs}, while PLONK supports more flexible constraint models. The choice of proof system affects efficiency, expressiveness, and trusted setup assumptions. Table~\ref{tab:constraint-proof-systems} summarizes combinations of constraint systems and proof systems used in practice.
+
+\begin{table}[htbp]
+	\centering
+	\begin{tabular}{l l l}
+		\toprule
+		\textbf{Constraint system} & \textbf{Proof system} & \textbf{Toolchain} \\
+		\midrule
+		R1CS                     & Groth16, Marlin       & gnark, snarkjs \\
+		PLONK-style              & PLONK, Halo2          & plonky2, halo2 \\
+		AIR                      & STARK                 & StarkWare, RISC Zero, Cairo \\
+		Relaxed R1CS (folding)   & Nova                  & nova \\
+		\bottomrule
+	\end{tabular}
+	\caption{Typical combinations of constraint systems, proof systems, and toolchains.}
+	\label{tab:constraint-proof-systems}
+\end{table}
+
+\paragraph{Recursive \acrshort{zksnark}s}
+Recursive \acrshort{zksnark}s enable the verification of one or more \acrshort{zksnark} proofs within another \acrshort{zksnark} circuit. This allows multiple proofs to be composed or chained together while preserving succinctness and zero-knowledge. Recursive proving is particularly relevant in applications such as scalable rollups or verifiable state machines~\cite{cryptoeprint:2019/1021, cryptoeprint:2021/370}. Recursive composition could also enable the chaining of credential proofs, but this use case has not yet been explored in depth.
+
+Conventional proof systems like Groth16 are not inherently designed for recursion. While they are efficient in many settings, their verifier logic depends on pairing-based cryptographic operations, which are difficult to express efficiently within arithmetic circuits used in \acrshort{zksnark} systems. In particular, these verifiers require operations over non-native fields, leading to significant overhead when verifying a Groth16 proof as part of another circuit~\cite{cryptoeprint:2022/1286}.
+
+To address this limitation, several proof systems have been developed that are explicitly designed for recursive use. \emph{Halo} introduces recursive composition without a trusted setup by using inner-product arguments and polynomial commitments. This allows recursive verification without duplicating setup assumptions~\cite{cryptoeprint:2019/1021}. Building on this idea, \emph{Nova} employs so-called folding schemes, which incrementally compress repeated computations into a single recursive proof with sublinear overhead~\cite{cryptoeprint:2021/370}. A different approach is taken by \emph{Plonky2}, which combines PLONK-style constraints with \acrfull{fri}-based polynomial commitments to achieve transparent recursive proofs optimized for performance in practice~\cite{Plonky2Draft2022}. Finally, \emph{Darlin} adapts the Marlin proof system for recursive use, supporting preprocessing \acrshort{zksnark}s while maintaining universal setup assumptions across recursive layers~\cite{haböck2021darlinrecursiveproofsusing}.
+
+These systems define specialized recursive \acrshort{zksnark} constructions that differ in efficiency, constraint system compatibility, and setup requirements. Their shared goal is to make structured proof composition practical and scalable. While this selection does not aim to be exhaustive, it highlights important proof systems that represent key developments in recursive \acrshort{zksnark} research. Additional constructions and theoretical approaches continue to emerge as this area evolves.

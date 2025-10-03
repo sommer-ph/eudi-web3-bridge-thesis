@@ -1,0 +1,242 @@
+\section{Monolithic implementation (Groth16)}
+\label{sec:monolithic}
+We begin by realizing the credential–wallet binding proof $\pi_{\text{cred-bind}}$ from Chapter~\ref{chap:construction} as a single Groth16 circuit, compiled with the \texttt{Circom}\footnote{\url{https://github.com/iden3/circom}, version~2.2.2} compiler and executed through the \texttt{snarkjs}\footnote{\url{https://github.com/iden3/snarkjs}, version~0.7.5} and \texttt{RapidSnark}\footnote{\url{https://github.com/iden3/rapidsnark}, version~0.0.7} proving backends. This monolithic instantiation serves as the baseline of our evaluation. By monolithic we mean that all four constraints of $\pi_{\text{cred-bind}}$, namely correctness of the credential key ($C_{\text{cred-bind}}^{(1)}$), credential ownership ($C_{\text{cred-bind}}^{(2)}$), credential validity ($C_{\text{cred-bind}}^{(3)}$), and blockchain wallet control ($C_{\text{cred-bind}}^{(4)}$), are enforced jointly in a single circuit $C_{\text{cred-bind}}$, which outputs a succinct Groth16 proof. The resulting proof demonstrates in a single argument that the prover possesses a valid issuer-signed credential and controls a blockchain wallet key. This section outlines how the constraints are arithmetized into circuit components and highlights optimizations applied to reduce their cost.
+
+\paragraph{Groth16 prover}
+As outlined in Section~\ref{sec:zksnarks}, zk-SNARK statements are expressed as arithmetic circuits that can be compiled into structured constraint systems. Groth16 in particular represents such circuits as a \acrfull{qap}, which enables succinct non-interactive arguments of knowledge. Concretely, the circuit $C_{\text{cred-bind}}$ is compiled into a polynomial system of degree proportional to the number of constraints $N$, which is then arithmetized into a QAP~\cite{groth2016size}. The prover’s workload is dominated by \acrfull{msm} operations on elliptic-curve groups and \acrfull{fft} operations over field polynomials of degree $N$~\cite{groth2016size,cryptoeprint:2019/1047}. Asymptotically, the prover complexity can be written as:
+\[
+T_{\text{prover}}^{\text{Groth16}}(N) 
+\approx \alpha_{\text{MSM}} \cdot N + \beta_{\text{FFT}} \cdot N\log N.
+\]
+Here, the first term stems from \acrshort{msm}s on the proving key and the second from \acrshort{fft}-based polynomial evaluation. In contrast to recursive proof systems, Groth16 proofs have \emph{constant} size (three group elements) and admit a verifier runtime independent of $N$, consisting only of $O(|x|)$ exponentiations, where $|x|$ denotes the length of the public input, plus three elliptic-curve pairings~\cite{groth2016size}. Since pairings are generally significantly more expensive than exponentiations, the verifier’s cost is effectively dominated by these three pairings~\cite{boneh2020moderncrypto}. These properties make Groth16 particularly attractive for monolithic circuits with moderate constraint counts and explain why the Circom--snarkjs--RapidSnark toolchain is a competitive baseline for evaluating our construction.
+
+\paragraph{Arithmetization and components}
+The circuit $C_{\text{cred-bind}}$ enforces the four constraints of the construction by mapping them into polynomial equalities over the base field $\mathbb{F}$ of the proof system. Each constraint corresponds to a relation $R_i \subseteq \mathcal{X}_i \times \mathcal{W}_i$, and their conjunction defines the relation:
+\[
+R_{\text{cred-bind}} = \{(x,w) : \bigwedge_{i=1}^4 f_{C_{\text{cred-bind}}^{(i)}}(x,w)=0\}.
+\]
+In this equation, $f_{C_{\text{cred-bind}}^{(i)}}(x,w)=0$ denotes a vector of polynomial constraints associated with the $i$-th constraint, and every polynomial in this vector must evaluate to zero. All elliptic-curve operations are defined over the prime fields $\mathbb{F}_p$ (for secp256r1) and $\mathbb{F}_{p'}$ (for secp256k1), but since the Groth16 backend operates over the SNARK field $\mathbb{F}$ (BN254), these operations are realized in-circuit via limb-decomposed encodings. That is, integers modulo $p$ or $p'$ are represented by vectors of field elements in $\mathbb{F}$, and modular reduction is enforced through explicit constraints.
+
+\medskip
+Constraint~$C_{\text{cred-bind}}^{(1)}$ ensures correctness of the credential key on secp256r1 by enforcing:
+\[
+pk_c = [sk_c]G \in E(\mathbb{F}_p).
+\]
+Here, $G$ is the generator of secp256r1 over $\mathbb{F}_{p}$ with $p = 2^{256}-2^{224}+2^{192}+2^{96}-1$
+~\cite{SEC2}. The \emph{scalar multiplication} is decomposed into a sequence of point additions and doublings, where for each bit $b_j$ of $sk_c$ one enforces:
+\[
+(x_{j+1},y_{j+1})=(x_j,y_j)+b_j\cdot (2^j G).
+\]
+The group law is arithmetized by the Weierstraß equations:
+\[
+\lambda = (y_2-y_1)\cdot(x_2-x_1)^{-1}, \quad x_3=\lambda^2-x_1-x_2, \quad y_3=\lambda(x_1-x_3)-y_1.
+\]
+
+\medskip
+Constraint~$C_{\text{cred-bind}}^{(2)}$ guarantees consistency between the derived point from $C_{\text{cred-bind}}^{(1)}$ and the public key embedded in the \acrshort{eudi} credential payload. To this end, the circuit reconstructs the public key coordinates $(x_c^{(\mathcal{C})},y_c^{(\mathcal{C})})$ directly from the base64url-encoded payload. Formally, let $\mathrm{payloadB64}=(s_0,\dots,s_{L_p-1}) \in \Sigma_{\mathrm{b64}}^{L_p}$ with $\Sigma_{\mathrm{b64}}=\{A\!-\!Z,a\!-\!z,0\!-\!9,-,\_\,,=\}$. For each coordinate $u \in \{x,y\}$, the preprocessing provides slicing parameters $(\mathit{off}_u^{\mathrm{B64}}, \mathit{len}_u^{\mathrm{B64}}, \mathit{drop}_u, \mathit{len}_u^{\mathrm{inner}})$ that specify how the relevant string is to be decoded. The circuit first selects a 64-character slice $S_u=(s_{\mathit{off}_u^{\mathrm{B64}}},\dots,s_{\mathit{off}_u^{\mathrm{B64}}+\mathit{len}_u^{\mathrm{B64}}-1})$ with $\mathit{len}_u^{\mathrm{B64}}=64$ and checks that all symbols lie in $\Sigma_{\mathrm{b64}}$. The choice of $64$ characters is deliberate. Since each base64url character represents 6 bits, groups of four characters yield exactly $4\cdot 6=24$ bits, corresponding to three bytes. A 64-character slice therefore consists of $64/4=16$ blocks, which decode to $16\cdot 3=48$ bytes. This ensures alignment with the block structure of the encoding and guarantees that the entire coordinate substring is contained within the slice. From the resulting 48-byte sequence, the first $\mathit{drop}_u$ bytes are discarded, because the decoded output may still contain irrelevant JSON key material such as \texttt{"x"} or \texttt{"y"}. The remaining part begins exactly at the start of the base64url-encoded coordinate. From there, $\mathit{len}_u^{\mathrm{inner}}\in\{43,44\}$ characters are retained. If $\mathit{len}_u^{\mathrm{inner}}=43$, the padding character `=' is appended to obtain a canonical 44-character representation. This is necessary since a 256-bit coordinate (32 bytes) encodes to either 43 characters plus a padding symbol, or 44 characters without padding. In both cases the canonical form has length 44. The 44-character inner string is decoded again using the same $4\mapsto 3$ rule, where every four base64url characters yield three bytes. With 44 characters this results in $44/4=11$ blocks, producing $11\cdot 3=33$ bytes in total. Depending on whether the last symbol of the inner string was `=', the circuit selects either the first 32 bytes or the final 32 bytes of this sequence. The selected 32-byte window is then interpreted as a big-endian integer:
+\[
+u_c^{(\mathcal{C})} = \sum_{j=0}^{31} b_j \cdot 256^{31-j} \in [0,2^{256}).
+\]
+In this equation, $b_0$ denotes the most significant byte. This yields the affine coordinate value embedded in the credential. Finally, the pair of decoded coordinates is compared against the point derived in $C_{\text{cred-bind}}^{(1)}$ by enforcing:
+\[
+f_{C_{\text{cred-bind}}^{(2)}}(X) =
+\bigl(x_c^{(C_{\text{cred-bind}}^{(1)})} - x_c^{(\mathcal{C})},\;
+y_c^{(C_{\text{cred-bind}}^{(1)})} - y_c^{(\mathcal{C})}\bigr) = (0,0).
+\]
+
+Constraint~$C_{\text{cred-bind}}^{(3)}$ realizes \acrshort{ecdsa} verification on secp256r1 with respect to the issuer’s public key $Q_I \in E(\mathbb{F}_p)$. The circuit first computes the message hash internally from the credential contents. Let \textit{headerB64} and \textit{payloadB64} denote the base64url-encoded header and payload strings of the credential, and let $\Sigma_{\mathrm{ascii}}$ denote the ASCII alphabet. The circuit concatenates these strings with the delimiter symbol `.', yielding the byte sequence:
+\[
+M = \texttt{ASCII}(\textit{headerB64}) \,\|\, \texttt{ASCII}(\texttt{'.'}) \,\|\, \texttt{ASCII}(\textit{payloadB64})
+\;\in\; \Sigma_{\mathrm{ascii}}^{L_h + 1 + L_p}.
+\]
+Here, $L_h$ and $L_p$ denote the respective lengths. It then computes the
+SHA-256 digest of $M$, represented as an integer:
+\[
+h = \mathrm{SHA256}(M) \in \mathbb{Z}_n.
+\]
+More precisely, $n$ denotes the group order of secp256r1. The SHA-256 computation is realized in-circuit through the standard compression function arithmetization using bit-decomposed state words. Given this value $h$, a signature $(r,s)\in\mathbb{Z}_n^2$, and the issuer’s public key $Q_I$, verification requires:
+\[
+R = [u_1]G + [u_2]Q_I, \qquad r \equiv x(R) \pmod{n}.
+\]
+Specifically, $u_1=h\cdot s^{-1}\bmod n$ and $u_2=r\cdot s^{-1}\bmod n$. This follows the algorithm as specified in FIPS~186-5~\cite{FIPS186-5}. The corresponding arithmetization enforces the system:
+\[
+\begin{aligned}
+	& s\cdot s^{-1} - 1 \equiv 0 \pmod{n} \;\wedge \\
+	& u_1 - h\cdot s^{-1} \equiv 0 \pmod{n} \;\wedge \quad u_2 - r\cdot s^{-1} \equiv 0 \pmod{n} \;\wedge \\
+	& (x_{u_1},y_{u_1}) = [u_1]G \;\wedge \quad (x_{u_2},y_{u_2}) = [u_2]Q_I \;\wedge \\
+	& (x_R,y_R) = (x_{u_1},y_{u_1}) + (x_{u_2},y_{u_2}) \;\wedge \\
+	& x_R - r \equiv 0 \pmod{n}.
+\end{aligned}
+\]
+As in $C_{\text{cred-bind}}^{(1)}$, the scalar multiplications and point addition are decomposed into polynomial constraints via the Weierstraß addition law. In this way, the circuit ensures that the signature $(r,s)$ is valid for the message digest derived from the actual credential contents. Constraint~$C_{\text{cred-bind}}^{(4)}$ ensures correctness of the blockchain wallet key on secp256k1 by enforcing:
+\[
+pk_0 = [sk_0]G \in E(\mathbb{F}_{p'}).
+\]
+Here, $G$ is the generator of secp256k1 over $\mathbb{F}_{p'}$ with $p' = 2^{256}-2^{32}-2^9-2^8 -2^7-2^6-2^4-1$~\cite{SEC2}. The scalar multiplication is expressed analogously to $C_{\text{cred-bind}}^{(1)}$ using addition and doubling formulas, but instantiated over $\mathbb{F}_{p'}$.
+
+\medskip
+Taken together, these four components yield a system of polynomial constraints that define the relation $R_{\text{cred-bind}}$ and constitute the input to the Groth16 compilation step, which transforms the system into an \acrshort{r1cs} instance and further into a \acrshort{qap} of degree proportional to the number of constraints.
+
+\paragraph{Fixed-base scalar multiplication optimization}
+A central cost driver in constraint~$C_{\text{cred-bind}}^{(3)}$ is the computation of $[u_2]Q_I$, where $Q_I$ denotes the issuer’s public key. In the generic setting, $Q_I$ is treated as a variable circuit input and thus requires a \emph{variable-base} scalar multiplication. Formally, this operation is realized by decomposing the scalar $u_2 \in \mathbb{Z}_n$ into its bit representation $u_2 = \sum_{j=0}^{\lambda-1} b_j 2^j$ with $b_j \in \{0,1\}$, and enforcing iteratively:
+\[
+R_{j+1} = 2R_j + b_j Q_I, \qquad R_0 = \mathcal{O}.
+\]
+In this equation, $\mathcal{O}$ is the point at infinity and $\lambda=256$ is the scalar bit length. This procedure induces $\lambda$ curve doublings and, on average, $\frac{\lambda}{2}$ conditional additions, each expressed through non-native modular arithmetic over $\mathbb{F}_{p}$. Consequently, the variable-base multiplication dominates the overall circuit size, contributing about $65\%$ of all non-linear constraints in the unoptimized variant.
+
+Our construction admits a stronger assumption. The issuer’s public key $Q_I$ is unique and fixed across all proofs. This follows from the trust model of a single credential issuer introduced in Chapter~\ref{chap:construction}. We therefore embed $Q_I$ directly into the circuit as a constant. This enables the use of \emph{fixed-base} scalar multiplication, in which all multiples of $Q_I$ are precomputed and stored in a lookup table. The scalar multiplication $[u_2]Q_I$ can then be expressed as a sequence of table lookups and a logarithmic number of additions, instead of a full bitwise double-and-add traversal\footnote{The implementation of this optimization is available in our fork of the \texttt{circom-ecdsa-p256} library: \url{https://github.com/sommer-ph/circom-ecdsa-p256}.}. The underlying windowing technique is a well-established optimization for elliptic-curve scalar multiplication, which we apply here to reduce the cost of $[u_2]Q_I$~\cite{boneh2020moderncrypto}. Concretely, let $u_2 = \sum_{i=0}^{t-1} v_i 2^{si}$ be the scalar decomposition into $t=\lceil \frac{\lambda}{s}\rceil$ windows of size $s$ bits. For each window position $i$ and each value $v \in \{0,\dots,2^s-1\}$ we precompute
+\[
+P_{i,v} = v \cdot 2^{si} Q_I \in E(\mathbb{F}_p).
+\]
+The fixed-base multiplication proceeds in three steps, which are formally detailed in Appendix~\ref{app:fixed-base}. First, the scalar $u_2$ is decomposed into $t$ windows $(v_0,\dots,v_{t-1})$ of $s$ bits each. Second, for every index $i$, the corresponding precomputed point $M_i = P_{i,v_i}$ is selected using multiplexer constraints. Finally, the resulting points are aggregated to obtain:
+\[
+R = \sum_{i=0}^{t-1} M_i.
+\]
+This computation requires $t-1$ elliptic-curve additions. The correctness follows immediately since the precomputation covers all possible window values:
+\[
+\sum_{i=0}^{t-1} P_{i,v_i}
+= \sum_{i=0}^{t-1} v_i \cdot 2^{si} Q_I
+= \left(\sum_{i=0}^{t-1} v_i 2^{si}\right) Q_I
+= [u_2]Q_I.
+\]
+
+\medskip
+The cost reduction can be captured formally by the following model.
+Let $\alpha_{\mathrm{add}},\alpha_{\mathrm{dbl}},\alpha_{\mathrm{mux}}$ denote the constraint costs of a point addition, doubling, and multiplexer step, respectively. The unoptimized (variable-base) multiplication incurs:
+\[
+\mathrm{cost}_{\mathrm{var}} \approx \alpha_{\mathrm{dbl}}\cdot N_{\mathrm{dbl}} + \alpha_{\mathrm{add}}\cdot N_{\mathrm{add}},
+\qquad
+N_{\mathrm{dbl}} \approx \lambda, \;\; N_{\mathrm{add}} \approx \tfrac{\lambda}{2}.
+\]
+In this expression, every bit requires one doubling and, on average, one addition every second bit. In contrast, the fixed-base multiplication incurs:
+\[
+\mathrm{cost}_{\mathrm{fix}} \approx \alpha_{\mathrm{add}}\cdot (t-1) + \alpha_{\mathrm{mux}}\cdot t \cdot 2^s.
+\]
+Here, $t=\lceil \frac{\lambda}{s}\rceil$ is the number of windows. For $s=8$ and $\lambda=256$ we obtain $t=32$, eliminating all doublings and reducing the number of additions to $31$. The overhead stems only from the multiplexer logic needed to select the correct precomputed point.
+
+\medskip
+Table~\ref{tab:fixed-base-comparison} summarizes the empirical effect of this optimization. We observe a reduction from $2.54 \cdot 10^6$ non-linear constraints in the baseline to about $8.10 \cdot 10^5$ in the optimized circuit. This corresponds to a proof generation speedup by a factor of roughly $3.5$, while the verification time remains essentially unaffected. Inspecting the optimized circuit in more detail reveals that the majority of the remaining cost stems from the in-circuit SHA-256 computation. In isolation, the SHA-256 gadget accounts for about $5.66 \cdot 10^5$ non-linear and $2.26 \cdot 10^4$ linear constraints, i.e.\ more than two thirds of the total size of $C_{\text{cred-bind}}^{(3)}$.
+
+\begin{table}[t]
+	\centering
+	\begin{tabular}{lrrr}
+		\toprule
+		& \textbf{Baseline (variable-base)} & \textbf{Optimized (fixed-base)} & \textbf{Improvement} \\
+		\midrule
+		Non-linear constraints & 2\,539\,133 & 810\,138 & $\times 3.13$ \\
+		Linear constraints     & 255\,024   & 240\,513 & $\times 1.06$ \\
+		\midrule
+		Proof generation       & 32.52\,s  & 9.35\,s & $\times 3.48$ \\
+		Proof verification     & 0.02\,s   & 0.02\,s & --- \\
+		\bottomrule
+	\end{tabular}
+	\caption{Impact of fixed-base optimization on the ECDSA verification (constraint~$C_{\text{cred-bind}}^{(3)}$).}
+	\label{tab:fixed-base-comparison}
+\end{table}
+
+\medskip
+\noindent\emph{Security considerations.} 
+The precomputation table is derived exclusively from the public constant $Q_I$, therefore no secret information is embedded in the circuit. Correctness is guaranteed by the completeness of the lookup table, which covers all possible window values $v \in \{0,\dots,2^s-1\}$, and by the fact that all multiplexer constraints are realized in constant form, preserving side-channel resistance. Moreover, the circuit enforces range and invertibility conditions on the signature scalars $(r,s)$. Specifically, $0 < r,s < n$ via range checks and $s \neq 0$ via modular inversion. Elliptic-curve consistency is ensured since the invoked group-operation templates (\texttt{Double}, \texttt{AddUnequal}, \texttt{ScalarMult}) internally enforce the Weierstraß addition and doubling laws modulo $p$, thereby guaranteeing that all computed points lie on $E(\mathbb{F}_p)$ and satisfy the group law. As $Q_I$ is embedded as a compile-time constant on the curve secp256r1 with cofactor $h=1$, no additional subgroup validation is required~\cite{SEC2}. The only functional trade-off is the rigidity of binding to a single issuer key, which is consistent with our system model but would need to be reconsidered in multi-issuer deployments.
+
+\paragraph{Performance analysis}
+Table~\ref{tab:fixed-base-comparison} quantified the local effect of the fixed-base optimization on constraint~$C_{\text{cred-bind}}^{(3)}$. We now extend this evaluation to the entire monolithic construction $\pi_{\text{cred-bind}}$ and to its individual subcomponents. In addition to the structural parameters (linear and non-linear constraints), we report pipeline metrics comprising circuit compilation, witness generation, trusted setup, verification key export, proof generation, proof verification, and proof size. Measurements are given for the unoptimized baseline, the optimized variant with fixed-base scalar multiplication, and, for completeness, the experimental PLONK backend of \texttt{snarkjs}. To attribute costs more precisely, we also evaluate the isolated constraints ($C_{\text{cred-bind}}^{(1)}$-$C_{\text{cred-bind}}^{(4)}$) and contrast these with SNARK-friendly benchmarks over BabyJubJub. This twisted Edwards curve is defined over the scalar field of BN254, which avoids non-native field operations and serving as a SNARK-friendly benchmark. A formal derivation and security analysis of BabyJubJub is given in \cite{BellesMunoz2021}. This multi-level analysis provides both absolute performance data and a decomposition of the dominant cost factors in $\pi_{\text{cred-bind}}$.
+
+The results of Table~\ref{tab:monolithic} highlight the quantitative effect of the fixed-base optimization when applied to the monolithic construction $\pi_{\text{cred-bind}}$. All performance tables are obtained with RapidSnark for proof generation and verification, and all times are reported in seconds and proof sizes in bytes. The unoptimized variant incurs about $3.05 \cdot 10^6$ non-linear constraints, leading to a median proof generation time of $34.12\,s$. By contrast, the optimized variant reduces the constraint count by more than half ($1.32 \cdot 10^6$ non-linear constraints) and achieves a proof generation time of $8.24\,s$, corresponding to a speedup factor of about four. Circuit compilation, witness generation, and trusted setup still dominate the one-time preprocessing costs. In our measurements, circuit compilation required $99.96$--$133.93$\,s, witness generation $65.93$--$282.01$\,s, and the trusted setup $504.42$--$1059.73$\,s, depending on the backend and optimization. These costs are amortized once the proving key is fixed. For repeated executions in realistic deployments, only proof generation and verification are relevant, and these stabilize at the aforementioned $8.24\,s$ and $0.01\,s$, respectively. 
+As described previously, both proof size and verification time in Groth16 are independent of the circuit size. Our measurements confirm this behavior. Proofs remain constant at about $805$~bytes with minor variations due to RapidSnark serialization, and verification time is stable around $0.01$\,s. Consequently, the evaluation focuses on prover-side costs, which dominate the overall performance.
+
+For completeness, we also evaluated the PLONK backend of \texttt{snarkjs}. Here proof generation required $1367.62\,s$, two orders of magnitude slower than Groth16. We attribute this gap not to an inherent inefficiency of PLONK, but to the current implementation maturity of \texttt{snarkjs}. Other PLONK-style systems such as Plonky2 can also deliver competitive performance, as will be shown in Section~\ref{sec:recursive-plonky2}. The measurements in Table~\ref{tab:monolithic} should therefore be interpreted as representative for Groth16 with RapidSnark, while the PLONK figures serve only as an implementation baseline.
+
+\begin{table}[t]
+	\centering
+	\begin{tabular}{lrrr}
+		\toprule
+		& \textbf{Monolithic (unopt.)} & \textbf{Monolithic (opt.)} & \textbf{Monolithic (opt., PLONK)} \\
+		\midrule
+		Non-linear constraints & 3\,049\,865 & 1\,320\,870 & 454\,105 \\
+		Linear constraints     &   443\,879 &   429\,368 & 396\,052 \\
+		\midrule
+		Circuit compilation    & 133.93\,s  & 99.96\,s   & 40.92\,s \\
+		Witness generation     & 282.01\,s  & 65.93\,s   & 58.90\,s \\
+		Trusted setup          & 1059.73\,s & 504.42\,s  & 1445.32\,s \\
+		Key export             & 0.87\,s    & 0.69\,s    & 1.02\,s \\
+		Proof generation       & 34.12\,s   & 8.24\,s    & 1367.62\,s \\
+		Proof verification     & 0.02\,s    & 0.01\,s    & 0.64\,s \\
+		Proof size             & 805\,B     & 803\,B     & 805\,B \\
+		\bottomrule
+	\end{tabular}
+	\caption{Metrics of the monolithic implementation $\pi_{\text{cred-bind}}$.}
+	\label{tab:monolithic}
+\end{table}
+
+The decomposition in Table~\ref{tab:monolithic-subcircuits} attributes the cost of $\pi_{\text{cred-bind}}$ to its individual constraints. All measurements were obtained with RapidSnark for proof generation and verification, and all times are reported in seconds and proof sizes in bytes. Constraint~$C_{\text{cred-bind}}^{(2)}$ enforces consistency of the credential public key by comparing the value embedded in the \acrshort{eudi} credential payload with the one derived in~$C_{\text{cred-bind}}^{(1)}$. The actual comparison is trivial, but the circuit must internally decode the base64url-encoded coordinates from the payload. As a result, almost the entire cost of $C_{\text{cred-bind}}^{(2)}$ stems from this decoding step, which accounts for roughly $3.0 \cdot 10^5$ non-linear constraints and a $2.12\,s$ proof time. Constraint~$C_{\text{cred-bind}}^{(3)}$ combines in-circuit hashing and signature verification. Specifically, the circuit computes the SHA-256 digest of the credential header and payload and then verifies the attached \acrshort{ecdsa} signature against the issuer’s public key $Q_I$. This subcircuit is the dominant contributor, with $2.54 \cdot 10^6$ non-linear constraints in the unoptimized variant and a proof generation time of $32.52\,s$. Applying the fixed-base optimization to the multiplication by $Q_I$ reduces the cost to $8.1 \cdot 10^5$ constraints and $9.35\,s$ proof time, thereby accounting for the global performance gain. The key derivation constraints $C_{\text{cred-bind}}^{(1)}$ and $C_{\text{cred-bind}}^{(4)}$ are substantially lighter, each contributing around $10^5$ constraints and $1.10$--$2.27\,s$ proving time. Structurally, $C_{\text{cred-bind}}^{(1)}$ and $C_{\text{cred-bind}}^{(4)}$ each implement a single fixed-base scalar multiplication with the generator $G$, whereas $C_{\text{cred-bind}}^{(3)}$ combines two such multiplications (for $G$ and $Q_I$) with an elliptic-curve addition, modular inversion, additional order-field arithmetic, and the in-circuit computation of the SHA-256 hash. This explains why $C_{\text{cred-bind}}^{(3)}$ remains by far the most expensive component, exceeding $C_{\text{cred-bind}}^{(1)}$ or $C_{\text{cred-bind}}^{(4)}$ even after optimization.
+It should be noted that while the constraint counts of the subcircuits add up consistently to the global circuit size, the pipeline timings are not strictly additive. The Groth16 prover applies shared preprocessing such as \acrshort{fft} domain sizing and multi-scalar multiplication batching, which introduces nonlinear interactions between subcircuits. Subcircuit measurements should therefore be read as relative indicators of cost contribution, not as components of an additive runtime model. The key insight remains that signature verification, together with the in-circuit hashing, dominates both structurally and in prover time, and that fixed-base scalar multiplication is the decisive primitive across most subcircuits.
+
+\begin{table}[t]
+	\centering
+	\begin{tabular}{lrrrrr}
+		\toprule
+		& \textbf{$C_{\text{cred-bind}}^{(1)}$} 
+		& \textbf{$C_{\text{cred-bind}}^{(2)}$} 
+		& \textbf{$C_{\text{cred-bind}}^{(3)}$} 
+		& \textbf{$C_{\text{cred-bind}}^{(3)}$ (opt.)} 
+		& \textbf{$C_{\text{cred-bind}}^{(4)}$} \\
+		\midrule
+		Non-linear constraints & 114\,724 & 300\,564 & 2\,539\,133 & 810\,138 & 95\,444 \\
+		Linear constraints     & 108\,599 & 10\,766  & 255\,024   & 240\,513 & 69\,490 \\
+		\midrule
+		Circuit compilation    & 12.02\,s & 8.32\,s  & 86.68\,s   & 59.70\,s & 9.97\,s \\
+		Witness generation     & 12.69\,s & 0.62\,s  & 245.88\,s  & 33.58\,s & 26.04\,s \\
+		Trusted setup          & 32.02\,s & 38.12\,s & 1016.27\,s & 334.19\,s & 41.04\,s \\
+		Key export             & 0.40\,s  & 0.44\,s  & 0.66\,s    & 0.47\,s  & 0.47\,s \\
+		Proof generation       & 1.10\,s  & 2.12\,s  & 32.52\,s   & 9.35\,s  & 2.27\,s \\
+		Proof verification     & 0.01\,s  & 0.01\,s  & 0.02\,s    & 0.02\,s  & 0.01\,s \\
+		Proof size             & 806\,B   & 806\,B   & 805\,B     & 806\,B   & 806\,B \\
+		\bottomrule
+	\end{tabular}
+	\caption{Subcircuit metrics of the monolithic implementation $\pi_{\text{cred-bind}}$.}
+	\label{tab:monolithic-subcircuits}
+\end{table}
+
+Table~\ref{tab:monolithic-native} reports three sanity baselines over BabyJubJub. These benchmarks are not intended as direct competitors to our target construction, but rather as reference points to highlight the efficiency of native arithmetic in the SNARK field and to isolate protocol-level overhead. They should not be read as a cryptographic comparison between \acrshort{ecdsa} and \acrfull{eddsa}. A fair comparison would require implementing both schemes over the same curve. Concretely, we evaluate a fixed-base key derivation, an \acrshort{eddsa} verification without hashing, and an \acrshort{eddsa} verification where the message is obtained by 
+computing the in-circuit SHA-256 digest over the base64url encoded \acrshort{eudi} credential header and payload, as in $C_{\text{cred-bind}}^{(3)}$. All circuits execute entirely over the scalar field of BN254. The absence of non-native field emulation explains the small constraint profile of key derivation, which requires only $3{,}939$ non-linear constraints and $183$ linear constraints, leading to $0.10$\,s for proof generation. \acrshort{eddsa} verification alone adds one variable-base and one fixed-base scalar multiplication on BabyJubJub, requiring $8{,}873$ non-linear constraints and $200$ linear constraints, resulting in $0.16$\,s for proof generation. By contrast, when SHA-256 hashing of the credential input is included, the cost increases by nearly two orders of magnitude to $575{,}080$ non-linear and $22{,}762$ linear constraints, leading to $4.51$\,s for proof generation. Comparing these baselines with the non-native subcircuits in Table~\ref{tab:monolithic-subcircuits} makes two effects visible, which are described below.
+
+\medskip
+The first effect is that non-native field emulation dominates. To quantify the overhead introduced by non-native arithmetic for the key derivation primitive, we compare the number of non-linear constraints of the subcircuits (Tables~\ref{tab:monolithic-subcircuits} and~\ref{tab:monolithic-native}). Using the constraint counts as cost indicators, we obtain:
+\[
+\frac{\text{$C_{\text{cred-bind}}^{(1)}$ (secp256r1)}}{\text{KeyDer (BabyJubJub)}} \approx 29.1,\qquad
+\frac{\text{$C_{\text{cred-bind}}^{(4)}$ (secp256k1)}}{\text{KeyDer (BabyJubJub)}} \approx 24.2.
+\]
+For signature verification the effect is smaller once hashing is aligned. Comparing the optimized $C_{\text{cred-bind}}^{(3)}$ with \acrshort{eddsa} over BabyJubJub including in-circuit SHA-256 yields:
+\[
+\frac{\text{$C_{\text{cred-bind}}^{(3)}$ (opt., secp256r1 \acrshort{ecdsa})}}{\text{\acrshort{eddsa} (BabyJubJub, with SHA-256)}} \approx 1.4.
+\]
+
+These factors arise because every field operation over the external curve modulus ($p_{\text{secp256r1}}$ or $p_{\text{secp256k1}}$) must be realized in BN254 via limb decomposition and constrained modular reduction. In the libraries used here this corresponds to $6\times 43$-bit limbs for secp256r1 and $4\times 64$-bit limbs for secp256k1. The choice of limb size reflects library design trade-offs. Smaller limbs (43\,bits) reduce range-check complexity but require more limbs, whereas larger limbs (64\,bits) increase the per-limb range checks but reduce the number of multiplication chains. In both cases, each multiplication or division expands into multiple multi-limb products, carry constraints, and range checks, inflating the non-linear and linear constraint counts. Second, protocol overhead in \acrshort{ecdsa} remains after fixed-base optimizations. Even with both scalar multiplications implemented as fixed-base windows (for $G$ and the issuer public key $Q_I$), \acrshort{ecdsa} verification includes extra order-arithmetic that \acrshort{eddsa} on BabyJubJub avoids. In particular, computing $s^{-1}\bmod n$, forming $u_1 = h\cdot s^{-1}\bmod n$ and $u_2 = r\cdot s^{-1}\bmod n$, and performing an additional elliptic-curve addition to combine $[u_1]G$ and $[u_2]Q_I$. In our non-native stack, modular inversion is realized by exponentiation (Fermat) over the group order and thus translates to a long chain of modular products and reductions. Moreover, the Weierstraß group law (\texttt{PointAdd}, \texttt{PointDouble}) itself requires computing slope parameters involving modular division, which again expands into non-native inverse constraints. While both \acrshort{ecdsa} and our \acrshort{eddsa} baseline include in-circuit SHA-256 hashing over the credential input, the additional order-arithmetic and non-native field operations in \acrshort{ecdsa} lead to a higher constraint count. Consequently, the optimized \acrshort{ecdsa} subcircuit $C_{\text{cred-bind}}^{(3)}$ still exceeds the cost of \acrshort{eddsa} verification, even though both share hashing and elliptic-curve scalar multiplications as building blocks.
+
+\medskip
+The constraint gaps above mirror proving time. BabyJubJub key derivation at $0.10$\,s contrasts with $1.10$\,s ($C_{\text{cred-bind}}^{(1)}$, secp256r1) and $2.27$\,s ($C_{\text{cred-bind}}^{(4)}$, secp256k1). For signature verification, BabyJubJub \acrshort{eddsa} with SHA-256 at $4.51$\,s contrasts with $9.35$\,s ($C_{\text{cred-bind}}^{(3)}$, optimized secp256r1). While these timings are not strictly additive across subcircuits, they reliably indicate where the prover spends work. Non-native arithmetic inflates every field operation by a limb-level factor, and \acrshort{ecdsa}’s order-field inversion, modular multiplications, and additional elliptic-curve additions contribute a protocol-specific overhead on top of the scalar multiplications. Together, these two effects account for the large constraint and proving-time gaps between the non-native (secp256r1, secp256k1) and native (BabyJubJub) instantiations.
+
+
+\begin{table}[t]
+	\centering
+	\begin{tabular}{lrrr}
+		\toprule
+		& \textbf{Key derive} 
+		& \textbf{\acrshort{eddsa} verify} 
+		& \textbf{\acrshort{eddsa} verify with SHA-256} \\
+		\midrule
+		Non-linear constraints & 3\,939   & 8\,873    & 575\,080 \\
+		Linear constraints     & 183      & 200      & 22\,762 \\
+		\midrule
+		Circuit compilation    & 0.20\,s  & 0.71\,s  & 66.68\,s \\
+		Witness generation     & 0.08\,s  & 0.16\,s  & 3.94\,s \\
+		Trusted setup          & 3.82\,s  & 8.68\,s  & 283.54\,s \\
+		Key export             & 0.37\,s  & 0.50\,s  & 0.60\,s \\
+		Proof generation       & 0.10\,s  & 0.16\,s  & 4.51\,s \\
+		Proof verification     & 0.01\,s  & 0.01\,s  & 0.02\,s \\
+		Proof size             & 806\,B   & 805\,B   & 804\,B \\
+		\bottomrule
+	\end{tabular}
+	\caption{SNARK-friendly comparison metrics over BabyJubJub.}
+	\label{tab:monolithic-native}
+\end{table}

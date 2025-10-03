@@ -1,0 +1,134 @@
+% Document type and layout configurations
+\documentclass[pdfa=true]{cacthesis}
+
+% pdf libraries
+\usepackage{pdfpages}
+\usepackage[a-2b]{pdfx}
+
+% Language configurations
+\usepackage[main=english]{babel}
+\usepackage[autostyle]{csquotes}
+
+% Literature configurations
+\usepackage[
+style=alphabetic,
+sorting=ynt
+]{biblatex}
+\addbibresource{bibliography.bib}
+
+% Glossary configurations
+\usepackage[acronym,nonumberlist,section=chapter]{glossaries}
+\makeglossaries
+\input{chapters/glossary}
+
+% Diagram configurations
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, fit, positioning, shapes.geometric}
+\usepackage[edges]{forest}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+% Color library
+\usepackage{xcolor}
+
+% Table libraries
+\usepackage{tabularx}
+\usepackage{booktabs}
+
+% List libraries
+\usepackage{enumitem}
+
+% Code libraries
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% Listings configurations
+\lstset{
+	breaklines=true,
+	breakatwhitespace=true,
+	basicstyle=\ttfamily\small,
+	numbers=left,
+	numberstyle=\tiny,
+	frame=single,
+	captionpos=b,
+	tabsize=2,
+	showstringspaces=false,
+	columns=flexible,
+}
+
+% Math libraries
+\usepackage{amsmath,amssymb}
+\usepackage{amsthm}
+\newtheorem{definition}{Definition}[chapter]
+\usepackage{bm}
+
+% Crypto library
+\usepackage{cryptocode}
+
+% Note library
+\usepackage{todonotes}
+
+% Link library
+\usepackage{hyperref}
+
+\begin{document}
+		
+	% Activate frontmatter configuration
+	\frontmatter
+	
+	% Define meta-data for \maketitle
+	\title{Bridging EUDI Wallets and Web3 via zk-SNARKs}
+	\author{Philipp Sommer}
+	\date{\today}
+	\subject{Master Thesis}
+	\publishers{
+		\small
+		\begin{tabular}{r l}
+			Supervisors:	& Prof. Sebastian Faust, Ph.D. \\
+							& M.Sc. Philipp-Florens Lehwalder \\
+		\end{tabular}
+	}
+	% Create title page
+	\maketitle
+	
+	% Use declaration file
+	\includepdf{declaration.pdf}
+	\include{chapters/ai-statement}
+	
+	\glsdisablehyper
+	
+	% Force page-break before abstract
+	\newpage
+	% Use abstract file
+	\include{chapters/abstract}
+	% Force page-break after abstract
+	\newpage
+	
+	% Create table of contents, figures, tables
+	\tableofcontents
+	\cleardoublepage
+	\phantomsection
+	\addcontentsline{toc}{chapter}{List of Abbreviations}
+	\printglossary[type=\acronymtype, title=List of Abbreviations, toctitle=List of Abbreviations]
+	\listoffigures
+	\listoftables
+	
+	% Activate mainmatter configuration
+	\mainmatter
+	
+	% Use chapter files
+	\include{chapters/introduction}
+	\include{chapters/preliminaries/preliminaries}
+	\include{chapters/construction}
+	\include{chapters/implementation/implementation}
+	\include{chapters/conclusion}
+	
+	% Use bibliography
+	\printbibliography
+	
+	% Use appendix
+	\appendix
+	\include{chapters/appendix/appendix}
+\end{document}

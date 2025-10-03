@@ -1,0 +1,226 @@
+\section{Recursive implementation (Plonky2)}
+\label{sec:recursive-plonky2}
+We realize the derived key binding proof $\pi_{\text{key-bind}}$ from Chapter~\ref{chap:construction} as a two-layer recursive SNARK in \texttt{Plonky2}\footnote{\url{https://github.com/0xPolygonZero/plonky2}}. The \emph{inner circuit} $C_{\text{cred-bind}}$ enforces the same credential–wallet binding constraints as the monolithic variant and outputs a proof $\pi_{\text{cred-bind}}$ with public inputs $(\mathit{pk}_I,\mathit{pk}_0)$. The \emph{outer circuit} $C_{\text{key-bind}}$ embeds the Plonky2 verifier gadget to check $\pi_{\text{cred-bind}}$ and, in addition, enforces the non-hardened derivation relation for a child public key, yielding a recursive proof with public inputs $(\mathit{pk}_I,\mathit{pk}_i,\mathit{cc}_0,i)$. The resulting proof demonstrates, in a single argument, that the prover controls a child public key $\mathit{pk}_i$ that is correctly derived from a parent key $\mathit{pk}_0$, and that this parent key has been bound to a valid issuer-signed \acrshort{eudi} credential via $\pi_{\text{cred-bind}}$, without revealing any secret information. This section outlines how the inner and outer circuits are arithmetized in Plonky2 into circuit components, describes optimizations applied to reduce their cost, and presents a performance evaluation.
+
+\paragraph{Plonky2 prover}
+Plonky2 follows a different design paradigm than Groth16. It does not require a \acrfull{srs} and instead realizes a transparent proof system in the PLONK family, combined with a \acrfull{fri}-based polynomial commitment scheme~\cite{cryptoeprint:2019/953,cryptoeprint:2018/046}. Statements are expressed as arithmetic circuits over the Goldilocks field, which are compiled into a polynomial \acrfull{iop}. The prover commits to evaluations of low-degree extensions of the witness polynomials using Merkle trees, and correctness is argued through a sequence of \acrshort{fri} queries that reduce the degree of the polynomial step by step~\cite{cryptoeprint:2019/1076}. Unlike Groth16, where the workload is dominated by \acrfull{msm} operations on elliptic curves, the Plonky2 prover is dominated by \acrshort{fft}s over the evaluation domain and Merkle-tree commitments for the polynomial oracles. In practice, hashing and Merkle-tree operations form the main performance bottleneck, and for recursive proofs, verifying Merkle paths alone accounts for the majority of the verifier circuit~\cite{Plonky2Draft2022}. Asymptotically, the prover complexity can be \emph{heuristically} approximated as:
+\[
+T_{\text{prover}}^{\text{Plonky2}}(N) 
+\approx \alpha_{\text{FFT}} \cdot N\log N 
++ \beta_{\text{Merkle}} \cdot N\log N 
++ \gamma_{\text{FRI}} \cdot N.
+\]
+In this equation, $N$ denotes the circuit size in gates, the first term reflects the \acrshort{fft} cost for polynomial evaluation and low-degree extension, the second term corresponds to Merkle-commitment construction, and the third term collects the linear costs of \acrshort{fri} reductions (query sampling and low-degree tests)~\cite{cryptoeprint:2018/046}. A key property of Plonky2 is that both its prover and verifier are designed to be \emph{recursion-friendly}. Proofs can be efficiently verified inside another circuit, since the outer verifier only needs to re-check the \acrshort{fri} queries and Merkle openings of the inner proof~\cite{cryptoeprint:2019/1076}. This enables the composition of multiple statements into a single recursive proof without relying on a trusted setup. In this sense, Plonky2 trades constant proof size for transparency and native support of recursion, making it well suited for applications where proofs must be aggregated or nested across several protocol layers~\cite{Plonky2Draft2022}.
+
+\paragraph{Arithmetization and components} 
+In the recursive implementation, the constraints are formulated with respect to the Plonky2 proof system. 
+The relations defined by $C_{\text{cred-bind}}^{(1)}$--$C_{\text{cred-bind}}^{(4)}$ remain identical to those in the monolithic case (cf.~Section~\ref{sec:monolithic}) and are not repeated here. For the derived key binding, we introduce four additional constraints $C_{\text{key-bind}}^{(1)}$--$C_{\text{key-bind}}^{(4)}$, whose conjunction defines:
+\[
+R_{\text{key-bind}} = \{(x,w) : \bigwedge_{i=1}^4 f_{C_{\text{key-bind}}^{(i)}}(x,w)=0\}.
+\]
+In this equation, $f_{C_{\text{key-bind}}^{(i)}}(x,w)=0$ denotes a vector of polynomial constraints associated with the $i$-th constraint, and every polynomial in this vector must evaluate to zero. All elliptic-curve operations are defined over the prime field $\mathbb{F}_{p'}$ of secp256k1, while the recursive Plonky2 backend itself is executed over the Goldilocks field. To bridge this field mismatch, Plonky2 realizes the required non-native arithmetic via dedicated gates that operate on 32-bit chunks. This mechanism implicitly corresponds to a limb decomposition, with the splitting and range enforcement handled by the gate system rather than by explicit circuit constraints.
+
+Constraint~$C_{\text{key-bind}}^{(1)}$ ensures consistency of the blockchain wallet parent public key across inner and outer proofs. The parent key $pk_0 \in E(\mathbb{F}_{p'})$ is provided as witness in the outer circuit and as public input in the inner proof. Equality is enforced limb-wise on the affine coordinates:
+\[
+f_{C_{\text{key-bind}}^{(1)}}(x,w) 
+= \bigl(pk_{0,x}^{\mathrm{out}} - pk_{0,x}^{\mathrm{in}},\;
+pk_{0,y}^{\mathrm{out}} - pk_{0,y}^{\mathrm{in}}\bigr) 
+= (0,0).
+\]
+Here, $pk_0^{\mathrm{in}}$ denotes the value of $pk_0$ bound in the public input vector of $\pi_{\text{cred-bind}}$. Constraint~$C_{\text{cred-bind}}^{(2)}$ ensures consistency of the issuer public key $pk_I \in E(\mathbb{F}_{p})$, which appears as public input in both inner and outer circuits, and equality is enforced by:
+\[
+f_{C_{\text{key-bind}}^{(2)}}(x,w) 
+= \bigl(pk_{I,x}^{\mathrm{out}} - pk_{I,x}^{\mathrm{in}},\;
+pk_{I,y}^{\mathrm{out}} - pk_{I,y}^{\mathrm{in}}\bigr) 
+= (0,0).
+\]
+More precisely, $pk_I^{\mathrm{in}}$ denotes the value of $pk_I$ bound in the public input vector of $\pi_{\text{cred-bind}}$. Constraint~$C_{\text{key-bind}}^{(3)}$ realizes the BIP32 non-hardened key derivation on secp256k1. Given the parent public key $pk_0 \in E(\mathbb{F}_{p'})$, chain code $cc_0$, and derivation index $i \in \{0,\dots,2^{31}-1\}$, the child key must satisfy:
+\[
+pk_i = pk_0 + [I_L]G.
+\]
+In this equation, $G$ is the generator of secp256k1 and $I_L$ is derived as specified in BIP32~\cite{bip32}. The corresponding arithmetization enforces the system:
+\[
+\begin{aligned}
+	& M = \mathsf{serP}(pk_0) \,\|\, \mathsf{ser}_{32}(i) \;\wedge \\
+	& I = \mathsf{HMAC\mbox{-}SHA512}(cc_0, M) = I_L \,\|\, I_R \;\wedge \\
+	& 0 < I_L < n \;\wedge \\
+	& (x_K,y_K) = [I_L]G \;\wedge \\
+	& (x_i,y_i) = (x_0,y_0) + (x_K,y_K) \;\wedge \\
+	& pk_i = (x_i,y_i). 
+\end{aligned}
+\]
+Concretely, $\mathsf{serP}$ denotes SEC~1 compressed serialization, $I_L$ is parsed as integer from the left 256 bits of $I$, and scalar multiplication and point addition are decomposed into polynomial constraints via the Weierstraß addition law as in~$C_{\text{cred-bind}}^{(1)}$. Constraint~$C_{\text{key-bind}}^{(4)}$ realizes the recursive proof verification. It enforces validity of the inner proof $\pi_{\text{cred-bind}}$ with respect to the statement $(pk_I, pk_0)$ under the verification key $\mathsf{vk}_{\text{cred-bind}} \subseteq \mathsf{pp}_{\text{cred-bind}}$:
+\[
+f_{C_{\text{cred-bind}}^{(4)}}(x,w) = \mathsf{Verify}_{\text{Plonky2}}(\mathsf{pp}_{\text{cred-bind}}, (pk_I, pk_0), \pi_{\text{cred-bind}}) - 1 = 0.
+\]
+Here, $\mathsf{Verify}_{\text{Plonky2}}$ denotes the system of polynomial constraints implementing the recursive verifier, including consistency checks of Merkle openings and low-degree proofs in the \acrshort{fri} protocol.
+
+\medskip
+Taken together, these four components yield a system of polynomial constraints that define the relation $R_{\text{key-bind}}$ and constitute the input to the Plonky2 compilation step. In Plonky2, this system is represented by a collection of Plonkish gates, which at circuit construction time expand into polynomial constraint equations over the Goldilocks field. The resulting constraint polynomials are aggregated and their low-degree property is certified through the \acrshort{fri} protocol, with commitments realized via Merkle trees to guarantee both algebraic correctness and oracle consistency within the recursive verifier.
+
+\paragraph{Fixed-base scalar multiplication optimization}
+Since the proving backend changes from Groth16 to Plonky2, the inner circuit $C_{\text{cred-bind}}$ was re-implemented, which required a re-arithmetization of constraints $C_{\text{cred-bind}}^{(1)}$–$C_{\text{cred-bind}}^{(4)}$ over the Goldilocks field while leaving their formal definitions unchanged. In this context, the scalar multiplication $[u_2]Q_I$ constitutes the dominant cost component of \acrshort{ecdsa} verification ($C_{\text{cred-bind}}^{(3)}$). As in the monolithic case, a variable-base realization in Plonky2 necessitates a bit-decomposed double-and-add traversal of the scalar\footnote{The implementation of this optimization is available in our fork of the \texttt{plonky2-ecdsa} library: \url{https://github.com/sommer-ph/plonky2-ecdsa}.}. This traversal is expressed through non-native, 32-bit limb arithmetic using \texttt{U32} gates, which introduces explicit carry propagation, range-enforcement constraints, and conditional additions, thereby substantially increasing circuit size. Empirically, this design resulted in an inner circuit of 262\,144 rows and proof generation times of $94.48$\,s for the complete credential–wallet binding proof, confirming that variable-base multiplication remains a prohibitive cost factor in the recursive setting. To enable a fair performance comparison and to mitigate prover-side costs, we applied the same fixed-base optimization in Plonky2 as in the monolithic case. The issuer’s public key $Q_I$ was embedded as a compile-time constant, which permits precomputation of windowed multiples:
+\[
+P_{i,v} = v \cdot 2^{si} Q_I, \qquad v \in \{0,\dots,2^s-1\}.
+\]  
+The precomputed values can then be selected in the circuit through constant-time \texttt{RandomAccessGate}s. For the recursive setting we chose a window size of $s=4$, yielding $t = \left\lceil \tfrac{\lambda}{s} \right\rceil = \left\lceil \tfrac{256}{4} \right\rceil = 64$ windows, where $\lambda=256$ reflects the bit length of the scalar values on P-256. In contrast, the monolithic implementation employed $s=8$ ($t=32$). This design decision reflects a system-specific trade-off. While smaller windows increase the number of additions ($63$ instead of $31$), they also shrink the lookup tables to $64 \cdot 16$ precomputed points. In Plonky2 this choice is advantageous, since multiplexer gates (\texttt{RandomAccessGate}) are comparatively costly relative to elliptic-curve additions, whereas in Groth16 the inverse relation held. Overall, the optimization eliminates the full sequence of $\lambda = 256$ doublings and $\tfrac{\lambda}{2} = 128$ conditional additions required in the variable-base algorithm, reducing the cost to at most $63$ additions and $64$ lookups. In addition, the security properties established for the monolithic case remain valid, since the precomputation depends only on the public constant $Q_I$, and range checks as well as curve-consistency constraints are enforced in the same manner. Table~\ref{tab:plonky2-fixed-base} reports the effect of the fixed-base optimization on the complete inner circuit ($C_{\text{cred-bind}}^{(1)}$--$C_{\text{cred-bind}}^{(4)}$) and the corresponding inner proof. Despite this optimization, the circuit size remained fixed at $262\,144$ rows, and proof generation decreased only moderately from $94.48$\,s to $85.05$\,s. The reason follows directly from the Plonky2 prover model in Section~\ref{sec:recursive-plonky2}. While fixed-base multiplication eliminates a substantial portion of scalar multiplication logic, the overall circuit complexity remains above the threshold for a smaller evaluation domain. In particular, the combination of in-circuit SHA-256 hashing over the credential input, base64url decoding of public key coordinates, the two secret-to-public-key derivations, and the residual arithmetic of \acrshort{ecdsa} verification sustains the row count. Since the prover workload is dominated by $\alpha_{\text{FFT}} \cdot N\log N$ and $\beta_{\text{Merkle}} \cdot N\log N$, with $N$ rounded to the next power of two, the global complexity remains tied to the same domain size. As a result, the optimization improves local arithmetic but yields only a limited end-to-end speed-up, while verification time and proof size stay essentially unchanged.
+
+\begin{table}[t]
+	\centering
+	\begin{tabular}{lrr}
+		\toprule
+		& \textbf{Inner proof (var-base)} & \textbf{Inner proof (fixed-base)} \\
+		\midrule
+		Circuit build time      & 55.79\,s    & 48.19\,s    \\
+		Circuit rows            & 262\,144    & 262\,144    \\
+		Proof generation        & 94.48\,s    & 85.05\,s    \\
+		Proof verification      & 0.01\,s     & 0.01\,s    \\
+		Proof size              & 179.6\,kB   & 179.6\,kB \\
+		\bottomrule
+	\end{tabular}
+	\caption{Impact of fixed-base optimization for \acrshort{ecdsa} verification on inner circuit and proof.}
+	\label{tab:plonky2-fixed-base}
+\end{table}
+
+\paragraph{Fixed-shape HMAC-SHA512 optimization}
+Having applied the same inner-circuit optimizations as in the Groth16 case, the Plonky2 instantiation reaches a comparable optimization level. The outer circuit $C_{\text{key-bind}}$ consists of four constraints. Two of them ($C_{\text{key-bind}}^{(1)}$, $C_{\text{key-bind}}^{(2)}$) are simple key-consistency checks with negligible cost, and $C_{\text{key-bind}}^{(4)}$ performs recursive verification of $\pi_{\text{cred-bind}}$, whose efficiency depends only on the inner proof. The remaining constraint, $C_{\text{key-bind}}^{(3)}$, realizes the BIP32 non-hardened key derivation, which we arithmetize as follows:
+\[
+I \gets \mathsf{HMAC\mbox{-}SHA512}\bigl(cc_0,\, M\bigr) = I_L \,\|\, I_R,\qquad 
+M = \mathsf{serP}\bigl(pk_0\bigr)\,\|\, \mathsf{ser}_{32}(i).
+\]
+Furthermore, we enforce:
+\[
+0 < I_L < n,\qquad pk_i = pk_0 + [I_L]G.
+\]
+Here, $G$ is the generator of \emph{secp256k1} and $n$ its group order. According to the BIP32 specification, the chain code has fixed length $|cc_0| = 32\ \text{bytes}$, and the message has fixed length $|M| = 37\ \text{bytes}$~\cite{bip32}. With the fixed input sizes from BIP32, the HMAC evaluation reduces to a straight-line circuit without data-dependent branching. Concretely, the inner hash processes $|K'\oplus \mathsf{ipad}|+|M|=128+37=165$ bytes and the outer hash processes $|K'\oplus \mathsf{opad}|+|H_1|=128+64=192$ bytes, where $K' = cc_0 \,\|\, 0^{96}$ denotes the chain code padded with 96 zero bytes. In both cases the length exceeds one block but remains below two, so each expands to exactly two SHA-512 compression rounds. Overall, the evaluation consists of four fixed compression calls, executed in a static order. This fixed shape arises because $\mathsf{ipad}$ and $\mathsf{opad}$ are hardwired constants, $K'$ specializes to $cc_0$ extended with 96 zero bytes, the XORs $K'\oplus\mathsf{ipad}$ and $K'\oplus\mathsf{opad}$ reduce to direct wiring, and the SHA-512 padding is fully determined for both $M$ and $H_1$. The resulting constraints for $C_{\text{key-bind}}^{(3)}$ are:
+\[
+\begin{aligned}
+	&\text{(i)}\quad H_1=\mathsf{SHA512}\bigl((K'\oplus\mathsf{ipad})\|M\bigr),\qquad
+	\text{(ii)}\quad H=\mathsf{SHA512}\bigl((K'\oplus\mathsf{opad})\|H_1\bigr),\\
+	&\text{(iii)}\quad H=I_L\|I_R,\ \ 0<I_L<n,\qquad
+	\text{(iv)}\quad pk_i = pk_0 + [I_L]G.
+\end{aligned}
+\]
+
+While the optimization simplifies the circuit structure, it does not change the asymptotic complexity of HMAC-SHA512. This can be expressed through a simple \emph{cost model}. Let $\alpha_{\mathrm{comp}}$ denote the gate cost of a SHA-512 compression block, and let $\alpha_{\mathrm{xor}}, \alpha_{\mathrm{pad}}$ capture the surrounding XOR and padding logic. The generic HMAC incurs:
+\[
+\mathrm{cost}_{\mathrm{gen}} \;\approx\; 4\,\alpha_{\mathrm{comp}} \;+\; \alpha_{\mathrm{xor}}^{\mathrm{var}} \;+\; \alpha_{\mathrm{pad}}^{\mathrm{var}}.
+\]
+In this equation, $\alpha_{\mathrm{xor}}^{\mathrm{var}}$ and $\alpha_{\mathrm{pad}}^{\mathrm{var}}$ account for data-dependent construction (ipad/opad, variable-length XOR, dynamic padding). The fixed-shape instantiation reduces these to constants:
+\[
+\mathrm{cost}_{\mathrm{fix}} \;\approx\; 4\,\alpha_{\mathrm{comp}} \;+\; \alpha_{\mathrm{xor}}^{\mathrm{const}} \;+\; \alpha_{\mathrm{pad}}^{\mathrm{const}}.
+\]
+In this expression, $\alpha_{\mathrm{xor}}^{\mathrm{const}},\alpha_{\mathrm{pad}}^{\mathrm{const}} \ll 
+\alpha_{\mathrm{xor}}^{\mathrm{var}},\alpha_{\mathrm{pad}}^{\mathrm{var}}$ because the fixed-shape construction removes variable XOR and padding costs. Since the four SHA-512 compression blocks dominate ($\alpha_{\mathrm{comp}}$ large in non-native $64$-bit arithmetic), the asymptotic complexity remains unchanged: $\mathrm{cost}_{\mathrm{fix}}\approx \mathrm{cost}_{\mathrm{gen}}$. Empirically, the outer circuit occupied $262{,}144$ rows with a proving time of $91.91$\,s, as the reduced XOR/padding logic did not lower the domain size. As explained earlier in the description of the Plonky2 prover, prover complexity is dominated by \acrshort{fft} and Merkle-tree operations over a domain of size $N$ that is rounded up to the next power of two. As the gate count remained in the same power-of-two bucket, the optimization yields no measurable speed-up, despite simplifying the implementation and removing branches. The same rounding effect was already visible in the preceding fixed-base scalar multiplication optimization of the inner circuit (Table~\ref{tab:plonky2-fixed-base}), where the row count stayed at $262{,}144$ and only a modest end-to-end improvement was observed.
+
+\medskip
+\noindent\emph{Correctness and security.}
+The specialization is semantics-preserving. It implements standard HMAC-SHA512 for the fixed input lengths, with RFC-compliant key normalization, domain separation via $\mathsf{ipad}/\mathsf{opad}$, and FIPS-compliant padding. The derivation constraints $0<I_L<n$ and $pk_i = pk_0 + [I_L]G$ remain unchanged. No secret-dependent control flow is introduced, as all tables and pads depend only on public constants.
+
+\paragraph{Poseidon-based key derivation optimization}
+In the previous optimization we observed that the \acrshort{bip32} non-hardened derivation step, when realized faithfully with HMAC-SHA512, constitutes a major performance bottleneck. The HMAC requires two invocations of SHA-512, i.e. four full compression blocks, which dominate the gate count in the outer circuit. Even after tailoring the HMAC to the fixed message and key lengths of \acrshort{bip32}, the heavy cost of the SHA-512 gadget remains. We therefore propose a SNARK-friendly alternative that preserves the additive update rule of \acrshort{bip32}, but replaces HMAC-SHA512 by a Poseidon-based pseudorandom function. Conceptually, the derivation continues to satisfy:
+\[
+pk_i \;=\; pk_0 + [t]\cdot G.
+\]
+Here, $pk_0$ is the parent public key, $G$ is the generator of $\mathrm{secp256k1}$, and $t$ is a pseudorandom scalar derived from the parent context $(pk_0, cc_0, i)$. This preserves the algebraic form of Constraint~$C_{\text{key-bind}}^{(3)}$, which likewise enforces $pk_i = pk_0 + [\cdot]G$, but differs in the definition of the derived scalar. While $C_{\text{key-bind}}^{(3)}$ defines $I_L$ as the left half of an HMAC-SHA512 output, we here obtain $t$ from a Poseidon hash modeled as a random oracle. This form of additive key derivation is the rule underlying \acrshort{bip32}, whose exact security in the random-oracle model has been analyzed in the literature~\cite{Das2021}. While \acrshort{bip32} instantiates the random oracle via HMAC-SHA512, our optimization replaces it by the SNARK-friendly Poseidon permutation, thereby reducing the circuit cost while maintaining the same security guarantees. 
+
+\medskip
+Formally, let $n$ denote the group order of $\mathrm{secp256k1}$. We define the derived scalar as
+\[
+t \;\equiv\; \mathsf{Poseidon}(pk_0, cc_0, i, \mathsf{DomSep}) \bmod n.
+\]
+In this equation, $pk_0 \in E(\mathbb{F}_{p'})$ is the parent public key in affine coordinates, $cc_0 \in \{0,1\}^{256}$ is the parent chain code, $i \in \{0,\dots,2^{31}-1\}$ is the non-hardened index, and $\mathsf{DomSep}$ is a fixed domain separator ensuring independence from other uses of Poseidon. Here $\mathsf{Poseidon}$ denotes the SNARK-friendly hash permutation over the base field, instantiated with a fixed number of rounds and a maximum distance separable matrix, which we model as a random oracle. The reduction ensures $0 < t < n$, and the child key $pk_i$ according to the additive update rule.
+
+Table~\ref{tab:poseidon-comparison} summarizes the impact of replacing HMAC-SHA512 by Poseidon in constraint~$C_{\text{key-bind}}^{(3)}$. We report only the outer circuit, since the inner proof remains unaffected. Both proof generation and verification times include the recursive verification of the inner proof, i.e.\ they are not isolated measurements of the key derivation step alone. The substitution reduces the number of circuit rows by a factor of four from $262,144$ to $65,536$.  This drop in domain size directly translates into a reduction of proof generation time from $91.91$\,s to $18.39$\,s and a proof-size decrease of about 11\%. This confirms that the dominant cost of the HMAC construction stems from the four SHA-512 compression blocks, which are eliminated entirely by the SNARK-friendly Poseidon permutation.
+
+\begin{table}[t]
+	\centering
+	\begin{tabular}{lrr}
+		\toprule
+		& \textbf{Outer proof (fixed-shape HMAC)} & \textbf{Outer proof (Poseidon-based)} \\
+		\midrule
+		Circuit rows        & 262\,144    & 65\,536 \\
+		Circuit build time  & 55.90\,s    & 9.52\,s \\
+		Proof generation    & 91.91\,s    & 18.39\,s \\
+		Proof verification  & 0.04\,s     & 0.01\,s \\
+		Proof size          & 179.7\,kB   & 159.2\,kB \\
+		\bottomrule
+	\end{tabular}
+	\caption{Impact of Poseidon-based key derivation on outer circuit and proof.}
+	\label{tab:poseidon-comparison}
+\end{table}
+
+\medskip
+\noindent\emph{Correctness and security considerations.}
+Under the random-oracle assumption for Poseidon over the base field, we obtain:
+\[
+t \;=\; \mathsf{Poseidon}(pk_0, cc_0, i, \mathsf{DomSep}) \bmod n.
+\]
+This value is computationally indistinguishable from a uniform scalar in $\{1,\dots,n-1\}$, up to negligible bias introduced by the modular reduction. Since the transcript length is fixed and spans at least 256 bits, the bias is negligible. Alternatively, rejection sampling could be employed if desired. Domain separation via $\mathsf{DomSep}$ guarantees that the key derivation function is isolated from other uses of Poseidon, preventing cross-protocol collisions or multi-use re-binding~\cite{cryptoeprint:2019/458}. The additive update rule is:
+\[
+pk_i \;=\; pk_0 + [t]\cdot G.
+\]
+It is preserved exactly as in constraint~$C_{\text{key-bind}}^{(3)}$, with only the pseudorandom function instantiation altered. Hence the reduction arguments for verified derivation carry over with $I_L$ replaced by $t$, relying on the soundness of the outer SNARK, the soundness of the embedded inner proof, and the functional correctness of the derivation interface. While proofs in the random-oracle model do not automatically translate to real-world instantiations, the heuristic use of Poseidon as a random oracle is well aligned with its design goals and cryptanalytic guarantees~\cite{cryptoeprint:1998/011}.
+
+\paragraph{Performance analysis}
+Table~\ref{tab:plonky2-base} reports baseline metrics for the recursive Plonky2 realization of our construction. \emph{Inner} refers to the credential–wallet binding proof and comprises constraints $C_{\text{cred-bind}}^{(1)}$–$C_{\text{cred-bind}}^{(4)}$ of the construction. The \emph{dynamic} variant instantiates $C_{\text{cred-bind}}^{(3)}$ (signature verification) with a variable-base scalar multiplication, whereas the \emph{static} variant replaces this by a fixed-base scalar multiplication on the issuer public key. \emph{Outer} refers to the derived key binding proof and comprises constraints $C_{\text{key-bind}}^{(1)}$–$C_{\text{key-bind}}^{(4)}$. It \emph{recursively verifies} an \emph{Inner} proof and enforces the additional derivation and binding logic.
+
+Unlike Groth16, Plonky2 dispenses with a \acrshort{srs} and adopts a transparent, \acrshort{fri}-backed PLONK-style design. As detailed in the Plonky2 prover description, the prover’s dominant costs stem from \acrshort{fft}s over the evaluation domain and Merkle-based polynomial commitments, and recursive verification re-checks \acrshort{fri} queries and Merkle openings of the inner proof. Consequently, we focus on structural metrics (circuit rows, build time) and core proving metrics (proof generation, proof verification, proof size). All values are averaged over ten runs.
+
+Moving from dynamic to static in the inner circuit leaves the domain size unchanged at $262{,}144$ rows, but reduces proof generation time moderately from $94.48$\,s to $85.05$\,s. The outer circuit is unaffected, since its size and proving time are dominated by the HMAC-based derivation logic and remain constant around $91.91$\,s. Verification is efficient in all cases (below $0.05$\,s), and proof sizes are stable at about $180$\,kB. These baselines serve as the reference point for the subsequent outer circuit optimizations.
+
+\begin{table}[t]
+	\centering
+	\begin{tabular}{lrrrr}
+		\toprule
+		& \textbf{Inner (dyn.)} & \textbf{Outer (dyn.)} & \textbf{Inner (stat.)} & \textbf{Outer (stat.)} \\
+		\midrule
+		Circuit rows        & 262\,144  & 262\,144  & 262\,144  & 262\,144 \\
+		Circuit build time  & 55.79\,s  & 55.90\,s  & 48.19\,s  & 55.90\,s \\
+		Proof generation    & 94.48\,s  & 91.91\,s  & 85.05\,s  & 91.91\,s \\
+		Proof verification  & 0.01\,s   & 0.04\,s   & 0.01\,s   & 0.04\,s \\
+		Proof size          & 179.6\,kB & 179.7\,kB & 179.6\,kB & 179.7\,kB \\
+		\bottomrule
+	\end{tabular}
+	\caption{Plonky2 metrics for inner (dyn./stat.) and outer proofs.}
+	\label{tab:plonky2-base}
+\end{table}
+
+Table~\ref{tab:poseidon-comparison} reports performance metrics for the outer proof $\pi_{\text{key-bind}}$, which encapsulates constraints $C_{\text{key-bind}}^{(1)}$–$C_{\text{key-bind}}^{(4)}$ and recursively verifies an inner $\pi_{\text{cred-bind}}$ proof. Two optimization steps were evaluated. The \emph{fixed-shape} HMAC realization and the replacement of HMAC-SHA512 by Poseidon. 
+
+The fixed-shape optimization statically constrains the message and key sizes of HMAC-SHA512 to the fixed parameters required by \acrshort{bip32}, thereby avoiding auxiliary padding logic and redundant conditional branches in the SHA-512 gadget. While this modification is conceptually meaningful, its effect on the circuit size is negligible. The SHA-512 compression function still dominates, and its arithmetization into $U32$-gates remains essentially unchanged. Moreover, since Plonky2 rounds the evaluation domain to the next power of two, minor savings in gate count do not translate into a smaller circuit size. Consequently, the metrics of the fixed-shape variant coincide with those of the unoptimized outer (inner static) baseline in Table~\ref{tab:plonky2-base}.
+
+In contrast, replacing HMAC-SHA512 by a Poseidon-based pseudorandom function yields a significant performance improvement. The number of circuit rows decreases by a factor of four (from $262{,}144$ to $65{,}536$), which reduces the polynomial evaluation domain and the complexity of the prover’s low-degree extensions. Circuit build time drops from $55.90$\,s to $9.52$\,s, and proof generation improves from $91.91$\,s to $18.39$\,s, corresponding to a $5\times$ speedup. Verification cost remains efficient ($0.04$\,s vs.\ $0.01$\,s), and proof size decreases slightly from 179.7\,kB to 159.2\,kB.
+
+All reported values already include the recursive verification of the inner proof and therefore represent the full prover and verifier costs of the composed construction. The results highlight that the Poseidon-based optimization substantially reduces prover complexity, while verifier performance remains essentially unaffected.
+
+Table~\ref{tab:plonky2-modular} reports performance metrics for two modular recursion strategies in Plonky2, \emph{serial recursion} and \emph{parallel recursion}. In the serial recursion pipeline, the proof logic is split into successive circuits $C_{\text{cred-bind}}^{(1)}$, $C_{\text{cred-bind}}^{(2)}$, $C_{\text{cred-bind}}^{(3)}$, $C_{\text{cred-bind}}^{(4)}$, and a final stage covering $C_{\text{key-bind}}^{(3)}$--$C_{\text{key-bind}}^{(4)}$. Each stage verifies the proof of its predecessor and adds its own constraint logic. Unlike the construction of the derived key binding proof~($\pi_{\text{key-bind}}$), the public key consistency checks $C_{\text{key-bind}}^{(1)}$ and $C_{\text{key-bind}}^{(2)}$ are not included in the final stage. In a serial pipeline, the corresponding cross-proof inputs $(pk_I, pk_0)$ are not directly available at that point, and adding them would require explicitly re-exposing and forwarding these values across stages. Since $C_{\text{key-bind}}^{(1)}$ and $C_{\text{key-bind}}^{(2)}$ perform only lightweight consistency checks, they were omitted for simplicity. The final stage thus performs the public key derivation with Poseidon and verifies the preceding chain, so that the overall transcript still represents the complete construction, analogous in functionality to the one-step outer proof of Table~\ref{tab:poseidon-comparison}. In the parallel recursion pipeline, the credential-wallet binding proof $\pi_{\text{cred-bind}}$ is decomposed into four sub-circuits ($C_{\text{cred-bind}}^{(1)}$, $C_{\text{cred-bind}}^{(2)}$, $C_{\text{cred-bind}}^{(3)}$, $C_{\text{cred-bind}}^{(4)}$). Each of these circuits generates its own proof, analogous to the corresponding stages in the serial pipeline. A separate outer circuit then performs the public key derivation with Poseidon ($C_{\text{key-bind}}^{(3)}$) and, in addition, recursively verifies the four inner proofs from $C_{\text{cred-bind}}^{(1)}$, $C_{\text{cred-bind}}^{(2)}$, $C_{\text{cred-bind}}^{(3)}$, and $C_{\text{cred-bind}}^{(4)}$ in a single step. This design avoids the strictly sequential dependency chain of the serial recursion, since all four inner circuits can be proven independently before being aggregated by the outer verifier. For comparability with the serial recursion pipeline, the public key consistency checks $C_{\text{key-bind}}^{(1)}$ and $C_{\text{key-bind}}^{(2)}$ were also omitted in the parallel case, although their inclusion would in principle be possible. When comparing these pipelines, we consider the proof generation time of the \emph{final} recursive proof, since this is the artifact that must ultimately be verified or passed on. In the serial pipeline, the last stage required $18.29$\,s, while in the parallel pipeline the final outer proof required $18.30$\,s. Both values are close to the one-step recursion baseline, and since the public key consistency checks $C_{\text{key-bind}}^{(1)}$ and $C_{\text{key-bind}}^{(2)}$ were omitted in this configuration, we do not interpret this difference as a genuine efficiency gain.
+
+Two structural effects explain why modular recursion does not provide consistent improvements over the one-step design.
+\emph{First, domain sizing in Plonky2 is always rounded up to the next power of two.} Even if an intermediate circuit such as $C_{\text{cred-bind}}^{(1)}$, $C_{\text{cred-bind}}^{(2)}$ or $C_{\text{cred-bind}}^{(4)}$ contains fewer constraints than the outer, its degree is rounded to $2^{15}=32{,}768$, $2^{16}=65{,}536$, or $2^{17}=131{,}072$ rows. This effect neutralizes potential savings from decomposing the construction, since the polynomial commitment and \acrshort{fri} components operate on the padded domain size rather than the raw constraint count.
+\emph{Second, modular recursion introduces cumulative overhead.} In the serial pipeline, each stage requires its own circuit build, witness assignment, and proof generation, in addition to recursively verifying the previous proof. In the parallel pipeline, although $C_{\text{cred-bind}}^{(1)}$--$C_{\text{cred-bind}}^{(4)}$ can in principle be executed concurrently, the outer circuit must still verify all inner proofs in one step. These effects explain why the total prover times in Table~\ref{tab:plonky2-modular} ($107.55$\,s for serial and $106.17$\,s for parallel) remain significantly higher than in the one-step recursion baseline. In summary, while both serial and parallel recursion offer clean modular decompositions of the construction, they do not improve efficiency in Plonky2. The mandatory power-of-two domain alignment and the overhead of recursive verification outweigh potential constraint savings. For practical deployments, the one-step recursive proof remains the preferable choice.
+
+\begin{table}[t]
+	\centering
+	\begin{tabular}{lrrrrrr}
+		\toprule
+		& \textbf{$C_{\text{cred-bind}}^{(1)}$} & \textbf{$C_{\text{cred-bind}}^{(2)}$} & \textbf{$C_{\text{cred-bind}}^{(3)}$} & \textbf{$C_{\text{cred-bind}}^{(4)}$} & \textbf{$C_{\text{key-bind}}^{(3\text{--}4)}$} & \textbf{Total} \\
+		\midrule
+		\multicolumn{7}{l}{\emph{Serial recursion}} \\
+		Circuit rows        & 65{,}536  & 65{,}536  & 131{,}072 & 65{,}536  & 65{,}536  & -- \\
+		Circuit build time  & 8.50\,s   & 8.37\,s   & 20.54\,s  & 8.14\,s   & 8.73\,s   & 54.27\,s \\
+		Proof generation    & 14.76\,s  & 12.74\,s  & 42.77\,s  & 18.94\,s  & 18.29\,s  & 107.55\,s \\
+		Proof verification  & 0.01\,s   & 0.01\,s   & 0.01\,s   & 0.01\,s   & 0.01\,s   & 0.01\,s \\
+		Proof size          & 162.6\,kB & 162.4\,kB & 169.6\,kB & 162.9\,kB & 162.9\,kB & $\approx$166.5\,kB \\
+		\midrule
+		\multicolumn{7}{l}{\emph{Parallel recursion}} \\
+		Circuit rows        & 65{,}536  & 32{,}768  & 131{,}072 & 65{,}536  & 65{,}536  & -- \\
+		Circuit build time  & 10.90\,s  & 4.99\,s   & 23.67\,s  & 10.67\,s  & 11.36\,s  & 61.59\,s \\
+		Proof generation    & 18.18\,s  & 7.10\,s   & 45.49\,s  & 17.05\,s  & 18.30\,s  & 106.17\,s \\
+		Proof verification  & --        & --        & --        & --        & 0.01\,s   & 0.01\,s \\
+		Proof size          & 162.6\,kB & 155.5\,kB & 169.4\,kB & 162.6\,kB & 162.9\,kB & $\approx$166.5\,kB \\
+		\bottomrule
+	\end{tabular}
+	\caption{Plonky2 metrics for serial and parallel recursion.}
+	\label{tab:plonky2-modular}
+\end{table}

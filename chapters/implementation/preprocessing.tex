@@ -1,0 +1,90 @@
+\section{Preprocessing}
+\label{sec:preprocessing}
+Preprocessing serves to reduce the complexity of the circuits by offloading data handling, such as parsing, serialization, and format conversion, to the backend before entering the proving system, thereby not only simplifying circuit structure but also reducing the overall constraint count and improving performance. Implementing complete data parsing within zero-knowledge circuits, especially for structured formats such as JSON or credential and wallet schemas, results in arithmetic overhead. The reason is that parsing requires branching on different cases and handling flexible data layouts, which translate into additional constraints when expressed as an arithmetic circuit. Previous systems also report the impracticality of in-circuit parsing. For example, zkLogin notes that “fully parsing the JSON inside a ZK circuit [...] is likely to be very inefficient”. Similarly, they highlight that “\acrshort{jwt} parsing [...] takes approximately 235k constraints [...]”~\cite{Baldimtsi_2024}. To address this, our implementation also performs parsing outside of the circuits. The backend extracts only the relevant fields (e.g., signature components) and formats them into succinct, system-specific canonical representations. These serve as the public inputs and private witnesses in the proofs, thereby shifting the majority of parsing outside the circuit and leaving only minimal structural validation inside. Preprocessing can thus be regarded as an optimization of the implementation, since it eliminates in-circuit overhead while preserving functional fidelity.
+
+\paragraph{Canonical representations}
+Building on the notion of multi-precision arithmetic and canonicalization maps introduced in Section~\ref{sec:zksnarks}, we specify their concrete instantiation for the preprocessing phase of our implementation. Let $\mathbb{F}=\mathbb{F}_q$ denote the scalar field of the target proof system, and fix a limb size $\ell$ with $2^{\ell}<q$. For each target system $\mathsf{sys}\in\{\mathsf{G16},\mathsf{P2}\}$, where $\mathsf{G16}$ denotes Groth16 and $\mathsf{P2}$ denotes Plonky2, we define canonicalization maps. In our implementation, \emph{Groth16} is instantiated over the BN254 pairing-friendly curve and its scalar field~\cite{cryptoeprint:2005/133,circomdocs}. Canonicalization is realized through byte-to-field decomposition. A byte string is split into base-$2^\ell$ limbs $L_\ell:\{0,1\}^* \to \mathbb{F}^t$, where each fragment is embedded as a field element and $t$ depends on the input length. Elliptic-curve points are serialized to bytes and passed through $L_\ell$, which we denote as $E_{\mathrm{pt}}^{(\mathsf{G16})}$, while scalar values such as \acrshort{ecdsa} components are serialized in big-endian form, padded to a fixed width, and likewise mapped via $L_\ell$, denoted $E_{\mathrm{sc}}^{(\mathsf{G16})}$. By contrast, \emph{Plonky2} operates over the Goldilocks field and employs hexadecimal encodings rather than field-native limbs~\cite{Plonky2Draft2022}. A byte string is mapped to its canonical \texttt{0x}-prefixed hex representation $H:\{0,1\}^* \to \{\text{hex strings}\}$. Elliptic-curve points are serialized to affine coordinates $(x,y)$ and each component is mapped through $H$, denoted $E_{\mathrm{pt}}^{(\mathsf{P2})}$, while integers are serialized to fixed-width byte strings and likewise mapped by $H$, denoted $E_{\mathrm{sc}}^{(\mathsf{P2})}$. In addition, we define the identity map $E_{\mathrm{id}}^{(\mathsf{sys})}:\mathbb{Z}^t \to \mathcal{E}_{\mathsf{sys}}^t$, which embeds small integers and vectors thereof (e.g., ASCII code points of structured strings) directly into the target domain. Since all such values lie within the range of the scalar field $\mathbb{F}_q$, they can be embedded without further encoding. The corresponding range constraints are enforced inside the circuit to ensure validity. Together, these canonicalization maps ensure that both cryptographic elements and structural metadata are represented in a form compatible with the respective proving systems, while preserving consistency across different toolchains.
+
+\paragraph{Input domain}
+To clarify what kind of structured data the system must handle, we define the input domain $D$ as $D = (\mathcal{W}{\mathrm{eid}}, \mathcal{C}, \mathcal{W}{\mathrm{bc}}, \mathrm{params})$. Here, $\mathcal{W}{\mathrm{eid}}$ denotes the \acrshort{eudi} wallet containing the credential key pair, $\mathcal{C}$ is the \acrshort{eudi} credential itself, $\mathcal{W}{\mathrm{bc}}$ represents the blockchain wallet together with its key material, and $\mathrm{params}$ collects the public system parameters (e.g., issuer public key, curve identifiers, domain separators, endianness conventions, fixed widths). This domain $D$ thus serves as the unified container of all cryptographic material and parameters that form the basis of preprocessing.
+
+\begin{definition}[Preprocessing]
+	A deterministic algorithm, which takes as input, for a target system $\mathsf{sys}\in\{\mathsf{G16},\mathsf{P2}\}$, structured data $D$ and outputs a collection of canonicalized variables $V^{(\mathsf{sys})}$.
+	\begin{itemize}
+		\item \textbf{Input:} Structured data $D = (\mathcal{W}_{\mathrm{eid}}, \mathcal{C}, \mathcal{W}_{\mathrm{bc}}, \mathrm{params})$.
+		
+		\item \textbf{Output:} $V^{(\mathsf{sys})} \subseteq \mathcal{E}_{\mathsf{sys}}$, where $\mathcal{E}_{\mathsf{G16}}=\mathbb{F}_{\mathrm{BN254}}$ and $\mathcal{E}_{\mathsf{P2}}=\{\text{hex-encoded strings}\} \cup \mathbb{Z}_{<q}$.
+		
+		\item \textbf{Computation:} $\mathsf{PreProc}$ extracts all attributes required by the proof pipeline from $D$ and encodes them via the canonicalization maps $(L_\ell, E_{\mathrm{pt}}^{(\mathsf{sys})}, E_{\mathrm{sc}}^{(\mathsf{sys})}, H, E_{\mathrm{id}}^{(\mathsf{sys})})$ into elements of $\mathcal{E}_{\mathsf{sys}}$. 
+	\end{itemize}
+		
+	The computation is structured as follows:
+	\begin{description}[leftmargin=0cm]				
+		\item[$\mathcal{W}_{\mathrm{eid}}$:] Provides the key pair $(sk_c, pk_c)$ associated with the \acrshort{eudi} credential.
+						
+		\item[$\mathcal{C}$:] Through a dedicated parsing routine, the credential provides the \acrshort{ecdsa} signature components $(r,s)$ as well as the base64url-encoded header and payload, represented as arrays of ASCII code points denoted $\mathit{headerB64}$ and $\mathit{payloadB64}$, together with their respective lengths $\mathit{headerB64Length}$ and $\mathit{payloadB64Length}$. In addition, the parser outputs, for each coordinate $u \in \{x,y\}$, the slicing parameters $(\mathit{off}_u^{\mathrm{B64}}, \mathit{len}_u^{\mathrm{B64}}, \mathit{drop}_u, \mathit{len}_u^{\mathrm{inner}})$, which determine how the payload is segmented so that elliptic-curve coordinates can be reconstructed efficiently inside the circuit. The header and payload arrays, together with their lengths, allow the circuit to recompute the signing input for \acrshort{jws}, thereby proving knowledge of the preimage. Using the payload array in combination with the slicing parameters, the circuit can further decode the public key $pk_c$ directly from the credential and compare it against the witness-derived key, ensuring consistency between the credential contents and the secret key material.
+		
+		\item[$\mathcal{W}_{\mathrm{bc}}$:] Provides the blockchain wallet information $(sk_0, pk_0, cc_0, pk_i, i)$, including the parent key pair, the chain code, and the child public key at index $i$.
+		
+		\item[$\mathrm{params}$:] Provides public system parameters such as the issuer’s public key, curve identifiers, domain separators, endianness conventions, and fixed widths.
+	\end{description}
+	\label{def:preproc}
+\end{definition}
+
+\paragraph{Instantiation}  
+In the following, we give the concrete instantiations of $\mathsf{PreProc}$ for the Groth16- and Plonky2-based systems. For the monolithic Groth16-based implementation, $\mathsf{PreProc}^{(\mathsf{G16})}(D)$ outputs limb-decomposed cryptographic values\footnote{We use $43$-bit limbs for secp256r1 and $64$-bit limbs for secp256k1.} and directly embedded structural values via $E_{\mathrm{id}}^{(\mathsf{G16})}$:
+\[
+\begin{aligned}
+	V^{(\mathsf{G16})} = \{\, &
+	E_{\mathrm{pt}}^{(\mathsf{G16})}(pk_I),\;
+	E_{\mathrm{pt}}^{(\mathsf{G16})}(pk_0),\;
+	E_{\mathrm{sc}}^{(\mathsf{G16})}(r),\;
+	E_{\mathrm{sc}}^{(\mathsf{G16})}(s),\;
+	E_{\mathrm{sc}}^{(\mathsf{G16})}(sk_c),\;
+	E_{\mathrm{sc}}^{(\mathsf{G16})}(sk_0), \\[2pt]
+	& E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{headerB64}),\;
+	E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{headerB64Length}),\;
+	E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{payloadB64}),\;
+	E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{payloadB64Length}), \\[2pt]
+	& E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{off}_x^{\mathrm{B64}}),\;
+	E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{len}_x^{\mathrm{B64}}),\;
+	E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{drop}_x),\;
+	E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{len}_x^{\mathrm{inner}}), \\[2pt]
+	& E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{off}_y^{\mathrm{B64}}),\;
+	E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{len}_y^{\mathrm{B64}}),\;
+	E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{drop}_y),\;
+	E_{\mathrm{id}}^{(\mathsf{G16})}(\mathit{len}_y^{\mathrm{inner}})
+	\,\} \subseteq \mathcal{E}_{\mathsf{G16}}.
+\end{aligned}
+\]
+
+For the recursive Plonky2-based system, $\mathsf{PreProc}^{(\mathsf{P2})}(D)$ outputs cryptographic values as hex-encoded strings and structural attributes via $E_{\mathrm{id}}^{(\mathsf{P2})}$. This includes the derivation parameters required for recursion:
+\[
+\begin{aligned}
+	V^{(\mathsf{P2})} = \{\, &
+	E_{\mathrm{pt}}^{(\mathsf{P2})}(pk_I),\;
+	E_{\mathrm{pt}}^{(\mathsf{P2})}(pk_0),\;
+	E_{\mathrm{pt}}^{(\mathsf{P2})}(pk_i),\;
+	E_{\mathrm{sc}}^{(\mathsf{P2})}(cc_0),\;
+	E_{\mathrm{sc}}^{(\mathsf{P2})}(i), \\[2pt]
+	& E_{\mathrm{sc}}^{(\mathsf{P2})}(r),\;
+	E_{\mathrm{sc}}^{(\mathsf{P2})}(s),\;
+	E_{\mathrm{sc}}^{(\mathsf{P2})}(sk_c),\;
+	E_{\mathrm{sc}}^{(\mathsf{P2})}(sk_0), \\[2pt]
+	& E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{headerB64}),\;
+	E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{headerB64Length}),\;
+	E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{payloadB64}),\;
+	E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{payloadB64Length}), \\[2pt]
+	& E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{off}_x^{\mathrm{B64}}),\;
+	E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{len}_x^{\mathrm{B64}}),\;
+	E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{drop}_x),\;
+	E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{len}_x^{\mathrm{inner}}), \\[2pt]
+	& E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{off}_y^{\mathrm{B64}}),\;
+	E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{len}_y^{\mathrm{B64}}),\;
+	E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{drop}_y),\;
+	E_{\mathrm{id}}^{(\mathsf{P2})}(\mathit{len}_y^{\mathrm{inner}})
+	\,\} \subseteq \mathcal{E}_{\mathsf{P2}}.
+\end{aligned}
+\]
+
+The recursive proof artifacts $\mathcal{A}_{\mathrm{inner}}=(\pi_{\text{cred-bind}},\mathsf{vk}_{\text{cred-bind}},\mathsf{pp}_{\text{cred-bind}})$ are produced and consumed internally by the Plonky2 toolchain and therefore remain outside the scope of $\mathsf{PreProc}$. 

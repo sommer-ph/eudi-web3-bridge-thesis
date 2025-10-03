@@ -1,0 +1,57 @@
+\providecommand{\CircuitConstraintFigure}{
+	\begin{figure}[htbp]
+		\centering
+		\begin{tikzpicture}[
+			gate/.style={draw, rounded corners, fill=gray!10, minimum width=1.2cm, minimum height=0.8cm},
+			var/.style={draw, circle, fill=blue!10, minimum size=0.8cm},
+			r1cs/.style={draw, rectangle, fill=orange!15, minimum width=1.2cm, minimum height=0.8cm},
+			font=\sffamily\small
+			]
+			
+			\node[var] (x1) at (-3, 2.5) {$x$};
+			\node[gate] (add3) at (-1.5, 2.5) {Add};
+			\node[var] (const3) at (-3, 3.5) {$3$};
+			\draw[->] (x1) -- (add3);
+			\draw[->] (const3) -- (add3);
+			
+			\node[var] (x2) at (-3, 0.5) {$x$};
+			\node[gate] (sub2) at (-1.5, 0.5) {Sub};
+			\node[var] (const2) at (-3, -0.5) {$2$};
+			\draw[->] (x2) -- (sub2);
+			\draw[->] (const2) -- (sub2);
+			
+			\node[gate] (mul) at (0, 1.5) {Mul};
+			\draw[->] (add3) -- (mul);
+			\draw[->] (sub2) -- (mul);
+			
+			\node[var] (z) at (1.5, 1.5) {$z$};
+			\draw[->] (mul) -- (z);
+			
+			\node at (-4, 1.5) {\textbf{Arithmetic Circuit}};
+			
+			\node[r1cs] (a1) at (3.5, 3.5) {$\vec{A}_1$};
+			\node[r1cs, right=0.3cm of a1] (b1) {$\vec{B}_1$};
+			\node[r1cs, right=0.3cm of b1] (c1) {$\vec{C}_1$};
+			\node at ([xshift=1.5cm]c1.east) {\scriptsize encodes $x + 3$};
+			
+			\node[r1cs] (a3) at (3.5, 2.0) {$\vec{A}_3$};
+			\node[r1cs, right=0.3cm of a3] (b3) {$\vec{B}_3$};
+			\node[r1cs, right=0.3cm of b3] (c3) {$\vec{C}_3$};
+			\node at ([xshift=2.4cm]c3.east) {\scriptsize encodes $(x+3)(x-2) = z$};
+			
+			\node[r1cs] (a2) at (3.5, 0.5) {$\vec{A}_2$};
+			\node[r1cs, right=0.3cm of a2] (b2) {$\vec{B}_2$};
+			\node[r1cs, right=0.3cm of b2] (c2) {$\vec{C}_2$};
+			\node at ([xshift=1.5cm]c2.east) {\scriptsize encodes $x - 2$};
+			
+			\node at (5.5, 4.5) {\textbf{Rank-1 Constraint System (R1CS)}};
+			
+			\draw[->, thick, dashed] (add3.east) .. controls (1.2, 2.5) and (2.5, 3.5) .. (a1.west);
+			\draw[->, thick, dashed] (sub2.east) .. controls (1.0, 0.5) and (2.5, 0.5) .. (a2.west);
+			\draw[->, thick, dashed] (mul.east) .. controls (1.5, 3.2) and (2.5, 2.2) .. (a3.west);
+			
+		\end{tikzpicture}
+		\caption{Translation of expression $z = (x + 3)(x - 2)$ into a R1CS.}
+		\label{fig:circuit-constraint}
+	\end{figure}
+}

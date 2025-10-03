@@ -1,0 +1,255 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\@writefile{toc}{\contentsline {chapter}{\numberline {4}Implementation and evaluation}{19}{chapter.4}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\@writefile{lol}{\addvspace {10\p@ }}
+\newlabel{chap:implementation-evaluation}{{4}{19}{Implementation and evaluation}{chapter.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.1}System architecture}{19}{section.4.1}\protected@file@percent }
+\newlabel{sec:architecture}{{4.1}{19}{System architecture}{section.4.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Components and roles}{19}{paragraph*.75}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Hardware}{20}{paragraph*.77}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.2}Preprocessing}{20}{section.4.2}\protected@file@percent }
+\newlabel{sec:preprocessing}{{4.2}{20}{Preprocessing}{section.4.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Canonical representations}{21}{paragraph*.79}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Input domain}{21}{paragraph*.81}\protected@file@percent }
+\newlabel{def:preproc}{{4.1}{22}{Preprocessing}{definition.4.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Instantiation}{22}{paragraph*.83}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.3}Monolithic implementation (Groth16)}{22}{section.4.3}\protected@file@percent }
+\newlabel{sec:monolithic}{{4.3}{22}{Monolithic implementation (Groth16)}{section.4.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Groth16 prover}{23}{paragraph*.85}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Arithmetization and components}{23}{paragraph*.87}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Fixed-base scalar multiplication optimization}{25}{paragraph*.89}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.1}{\ignorespaces Impact of fixed-base optimization on the ECDSA verification (constraint~$C_{\text  {cred-bind}}^{(3)}$).}}{26}{table.caption.90}\protected@file@percent }
+\newlabel{tab:fixed-base-comparison}{{4.1}{26}{Impact of fixed-base optimization on the ECDSA verification (constraint~$C_{\text {cred-bind}}^{(3)}$)}{table.caption.90}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.2}{\ignorespaces Metrics of the monolithic implementation $\pi _{\text  {cred-bind}}$.}}{27}{table.caption.93}\protected@file@percent }
+\newlabel{tab:monolithic}{{4.2}{27}{Metrics of the monolithic implementation $\pi _{\text {cred-bind}}$}{table.caption.93}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Performance analysis}{27}{paragraph*.92}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.3}{\ignorespaces Subcircuit metrics of the monolithic implementation $\pi _{\text  {cred-bind}}$.}}{28}{table.caption.94}\protected@file@percent }
+\newlabel{tab:monolithic-subcircuits}{{4.3}{28}{Subcircuit metrics of the monolithic implementation $\pi _{\text {cred-bind}}$}{table.caption.94}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.4}Recursive implementation (Plonky2)}{29}{section.4.4}\protected@file@percent }
+\newlabel{sec:recursive-plonky2}{{4.4}{29}{Recursive implementation (Plonky2)}{section.4.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.4}{\ignorespaces SNARK-friendly comparison metrics over BabyJubJub.}}{30}{table.caption.95}\protected@file@percent }
+\newlabel{tab:monolithic-native}{{4.4}{30}{SNARK-friendly comparison metrics over BabyJubJub}{table.caption.95}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Plonky2 prover}{30}{paragraph*.97}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Arithmetization and components}{30}{paragraph*.99}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Fixed-base scalar multiplication optimization}{32}{paragraph*.101}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Fixed-shape HMAC-SHA512 optimization}{32}{paragraph*.104}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.5}{\ignorespaces Impact of fixed-base optimization for \acrshort {ecdsa} verification on inner circuit and proof.}}{33}{table.caption.102}\protected@file@percent }
+\newlabel{tab:plonky2-fixed-base}{{4.5}{33}{Impact of fixed-base optimization for \acrshort {ecdsa} verification on inner circuit and proof}{table.caption.102}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Poseidon-based key derivation optimization}{34}{paragraph*.106}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.6}{\ignorespaces Impact of Poseidon-based key derivation on outer circuit and proof.}}{35}{table.caption.107}\protected@file@percent }
+\newlabel{tab:poseidon-comparison}{{4.6}{35}{Impact of Poseidon-based key derivation on outer circuit and proof}{table.caption.107}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.7}{\ignorespaces Plonky2 metrics for inner (dyn./stat.) and outer proofs.}}{35}{table.caption.110}\protected@file@percent }
+\newlabel{tab:plonky2-base}{{4.7}{35}{Plonky2 metrics for inner (dyn./stat.) and outer proofs}{table.caption.110}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Performance analysis}{35}{paragraph*.109}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.8}{\ignorespaces Plonky2 metrics for serial and parallel recursion.}}{37}{table.caption.111}\protected@file@percent }
+\newlabel{tab:plonky2-modular}{{4.8}{37}{Plonky2 metrics for serial and parallel recursion}{table.caption.111}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.5}Exploratory recursive implementation (Nova)}{37}{section.4.5}\protected@file@percent }
+\newlabel{sec:recursive-nova}{{4.5}{37}{Exploratory recursive implementation (Nova)}{section.4.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Nova prover}{37}{paragraph*.113}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Implementation and results}{38}{paragraph*.115}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.6}Performance and break-even analysis}{38}{section.4.6}\protected@file@percent }
+\newlabel{sec:analysis}{{4.6}{38}{Performance and break-even analysis}{section.4.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Empirical observations}{38}{paragraph*.117}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.9}{\ignorespaces Performance metrics of optimized implementations.}}{39}{table.caption.118}\protected@file@percent }
+\newlabel{tab:consolidated-performance}{{4.9}{39}{Performance metrics of optimized implementations}{table.caption.118}{}}
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Theoretical cost models}{39}{paragraph*.120}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\nonumberline Break-even analysis}{40}{paragraph*.122}\protected@file@percent }
+\@setckpt{chapters/implementation/implementation}{
+\setcounter{page}{42}
+\setcounter{equation}{0}
+\setcounter{enumi}{3}
+\setcounter{enumii}{0}
+\setcounter{enumiii}{0}
+\setcounter{enumiv}{0}
+\setcounter{footnote}{12}
+\setcounter{mpfootnote}{0}
+\setcounter{part}{0}
+\setcounter{chapter}{4}
+\setcounter{section}{6}
+\setcounter{subsection}{0}
+\setcounter{subsubsection}{0}
+\setcounter{paragraph}{0}
+\setcounter{subparagraph}{0}
+\setcounter{figure}{0}
+\setcounter{table}{9}
+\setcounter{AM@survey}{0}
+\setcounter{section@level}{4}
+\setcounter{Item}{3}
+\setcounter{Hfootnote}{15}
+\setcounter{bookmark@seq@number}{0}
+\setcounter{tabx@nest}{0}
+\setcounter{listtotal}{0}
+\setcounter{listcount}{0}
+\setcounter{liststart}{0}
+\setcounter{liststop}{0}
+\setcounter{citecount}{0}
+\setcounter{citetotal}{0}
+\setcounter{multicitecount}{0}
+\setcounter{multicitetotal}{0}
+\setcounter{instcount}{109}
+\setcounter{maxnames}{3}
+\setcounter{minnames}{1}
+\setcounter{maxitems}{3}
+\setcounter{minitems}{1}
+\setcounter{citecounter}{0}
+\setcounter{maxcitecounter}{0}
+\setcounter{savedcitecounter}{0}
+\setcounter{uniquelist}{0}
+\setcounter{uniquename}{0}
+\setcounter{refsection}{0}
+\setcounter{refsegment}{0}
+\setcounter{maxextratitle}{0}
+\setcounter{maxextratitleyear}{0}
+\setcounter{maxextraname}{3}
+\setcounter{maxextradate}{0}
+\setcounter{maxextraalpha}{0}
+\setcounter{abbrvpenalty}{50}
+\setcounter{highnamepenalty}{50}
+\setcounter{lownamepenalty}{25}
+\setcounter{maxparens}{3}
+\setcounter{parenlevel}{0}
+\setcounter{blx@maxsection}{0}
+\setcounter{mincomprange}{10}
+\setcounter{maxcomprange}{100000}
+\setcounter{mincompwidth}{1}
+\setcounter{afterword}{0}
+\setcounter{savedafterword}{0}
+\setcounter{annotator}{0}
+\setcounter{savedannotator}{0}
+\setcounter{author}{0}
+\setcounter{savedauthor}{0}
+\setcounter{bookauthor}{0}
+\setcounter{savedbookauthor}{0}
+\setcounter{commentator}{0}
+\setcounter{savedcommentator}{0}
+\setcounter{editor}{0}
+\setcounter{savededitor}{0}
+\setcounter{editora}{0}
+\setcounter{savededitora}{0}
+\setcounter{editorb}{0}
+\setcounter{savededitorb}{0}
+\setcounter{editorc}{0}
+\setcounter{savededitorc}{0}
+\setcounter{foreword}{0}
+\setcounter{savedforeword}{0}
+\setcounter{holder}{0}
+\setcounter{savedholder}{0}
+\setcounter{introduction}{0}
+\setcounter{savedintroduction}{0}
+\setcounter{namea}{0}
+\setcounter{savednamea}{0}
+\setcounter{nameb}{0}
+\setcounter{savednameb}{0}
+\setcounter{namec}{0}
+\setcounter{savednamec}{0}
+\setcounter{translator}{0}
+\setcounter{savedtranslator}{0}
+\setcounter{shortauthor}{0}
+\setcounter{savedshortauthor}{0}
+\setcounter{shorteditor}{0}
+\setcounter{savedshorteditor}{0}
+\setcounter{labelname}{0}
+\setcounter{savedlabelname}{0}
+\setcounter{institution}{0}
+\setcounter{savedinstitution}{0}
+\setcounter{lista}{0}
+\setcounter{savedlista}{0}
+\setcounter{listb}{0}
+\setcounter{savedlistb}{0}
+\setcounter{listc}{0}
+\setcounter{savedlistc}{0}
+\setcounter{listd}{0}
+\setcounter{savedlistd}{0}
+\setcounter{liste}{0}
+\setcounter{savedliste}{0}
+\setcounter{listf}{0}
+\setcounter{savedlistf}{0}
+\setcounter{location}{0}
+\setcounter{savedlocation}{0}
+\setcounter{organization}{0}
+\setcounter{savedorganization}{0}
+\setcounter{origlocation}{0}
+\setcounter{savedoriglocation}{0}
+\setcounter{origpublisher}{0}
+\setcounter{savedorigpublisher}{0}
+\setcounter{publisher}{0}
+\setcounter{savedpublisher}{0}
+\setcounter{language}{0}
+\setcounter{savedlanguage}{0}
+\setcounter{origlanguage}{0}
+\setcounter{savedoriglanguage}{0}
+\setcounter{pageref}{0}
+\setcounter{savedpageref}{0}
+\setcounter{textcitecount}{0}
+\setcounter{textcitetotal}{0}
+\setcounter{textcitemaxnames}{0}
+\setcounter{biburlbigbreakpenalty}{100}
+\setcounter{biburlbreakpenalty}{200}
+\setcounter{biburlnumpenalty}{0}
+\setcounter{biburlucpenalty}{0}
+\setcounter{biburllcpenalty}{0}
+\setcounter{smartand}{1}
+\setcounter{bbx:relatedcount}{0}
+\setcounter{bbx:relatedtotal}{0}
+\setcounter{parentequation}{0}
+\setcounter{LT@tables}{0}
+\setcounter{LT@chunks}{0}
+\setcounter{lstnumber}{1}
+\setcounter{caption@flags}{2}
+\setcounter{continuedfloat}{0}
+\setcounter{float@type}{16}
+\setcounter{algorithm}{0}
+\setcounter{ALG@line}{0}
+\setcounter{ALG@rem}{0}
+\setcounter{ALG@nested}{0}
+\setcounter{ALG@Lnr}{2}
+\setcounter{ALG@blocknr}{10}
+\setcounter{ALG@storecount}{0}
+\setcounter{ALG@tmpcounter}{0}
+\setcounter{definition}{1}
+\setcounter{@pc@global@pc@cnt}{4}
+\setcounter{@pc@global@pc@nestcnt}{0}
+\setcounter{@pc@stackdepth}{0}
+\setcounter{pclinenumber}{9}
+\setcounter{Hpclinenumber}{50}
+\setcounter{@pclinenumber}{50}
+\setcounter{H@pclinenumber}{50}
+\setcounter{@pclinenumbertmp}{0}
+\setcounter{pcgamecounter}{1}
+\setcounter{Hpcgamecounter}{0}
+\setcounter{pcrlinenumber}{0}
+\setcounter{Hpcrlinenumber}{0}
+\setcounter{@pcrlinenumbertmp}{0}
+\setcounter{@pc@indentationlevel}{0}
+\setcounter{pccolumncounter}{2}
+\setcounter{@pcsubprogcnt1}{0}
+\setcounter{@pcrsubprogcnt1}{0}
+\setcounter{@pcsubprogcnt2}{0}
+\setcounter{@pcrsubprogcnt2}{0}
+\setcounter{@pcsubprogcnt3}{0}
+\setcounter{@pcrsubprogcnt3}{0}
+\setcounter{@pcsubprogcnt4}{0}
+\setcounter{@pcrsubprogcnt4}{0}
+\setcounter{@pcsubprogcnt5}{0}
+\setcounter{@pcrsubprogcnt5}{0}
+\setcounter{@pcsubprogcnt6}{0}
+\setcounter{@pcrsubprogcnt6}{0}
+\setcounter{@pcsubprogcnt7}{0}
+\setcounter{@pcrsubprogcnt7}{0}
+\setcounter{@pcsubprogcnt8}{0}
+\setcounter{@pcrsubprogcnt8}{0}
+\setcounter{@pcsubprogcnt9}{0}
+\setcounter{@pcrsubprogcnt9}{0}
+\setcounter{@pcsubprogstep}{0}
+\setcounter{@pc@remember}{0}
+\setcounter{@bb@oracle@cnt}{0}
+\setcounter{@bb@oracle@nestcnt}{0}
+\setcounter{@bb@challenger@cnt}{0}
+\setcounter{@bb@challenger@nestcnt}{0}
+\setcounter{@bb@env@nestcnt}{0}
+\setcounter{pcstartgamecounter}{1}
+\setcounter{@todonotes@numberoftodonotes}{0}
+\setcounter{lstlisting}{0}
+}

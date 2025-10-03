@@ -1,0 +1,81 @@
+\section{Performance and break-even analysis}
+\label{sec:analysis}
+
+\paragraph{Empirical observations}
+Table~\ref{tab:consolidated-performance} summarizes the end-to-end performance of the optimized monolithic (Groth16), monolithic (Plonky2), and recursive (Plonky2) realizations. The table separates \emph{shared} metrics, which allow a direct head-to-head comparison, from \emph{system-specific} metrics that explain structural differences between the proving systems. The monolithic Groth16 proof is about $10\times$ faster to generate than the monolithic Plonky2 proof ($8.24\,s$ vs.\ $85.05\,s$) and more than two orders of magnitude smaller in size ($803\,B$ vs.\ $179.6\,kB$). Verification remains equally fast across all systems ($\approx 0.01\,s$), consistent with Groth16’s constant-size verifier and Plonky2’s succinct verifier design. In practical deployments, this translates into significantly lower prover latency and substantially reduced transmission or storage overhead for Groth16, while verifier-side costs remain negligible in all systems. Beyond these shared metrics, Groth16 entails one-time preprocessing costs for circuit compilation, witness generation, and the trusted setup (ranging from $65.93\,s$ to $504.42\,s$ in our measurements). Although these dominate the pipeline once per circuit, they amortize across multiple proofs. Plonky2, in contrast, avoids a \acrshort{srs} but incurs higher per-proof cost due to its polynomial \acrshort{iop} with \acrshort{fft}s, Merkle commitments, and \acrshort{fri} queries. The decisive driver of prover cost is the evaluation-domain size (\emph{rows}), which fixes the scale of these operations. Circuit build time adds further overhead ($48.19\,s$ monolithic, $9.52\,s$ recursive), yet the bulk of latency stems from proof generation itself ($85.05\,s$ monolithic, $18.39\,s$ recursive). The recursive Plonky2 realization with Poseidon-based derivation reduces proof generation time to $18.39\,s$ and proof size to $159.2\,kB$, substantially improving over monolithic Plonky2 but still falling short of the Groth16 baseline. While this confirms that Plonky2 is recursion-friendly in principle, the additional verifier gadget and domain-size padding prevent recursion from yielding advantages for a single instance of our construction. Nevertheless, when Plonky2 is considered in isolation, the recursive variant provides a clear efficiency gain over its monolithic counterpart, indicating that recursion can be beneficial within this proof system even if it does not yet outperform Groth16.
+
+\medskip
+\emph{Answer to the research question.}
+For the credential–wallet binding proof $\pi_{\text{cred-bind}}$ considered in this work, the \emph{monolithic} Groth16 implementation achieves superior efficiency over the \emph{recursive} Plonky2 realization in both proving time and proof size, while verification cost remains negligible in both systems. In the Plonky2 case, recursion was instantiated through the derived key binding proof $\pi_{\text{key-bind}}$, which encapsulates $\pi_{\text{cred-bind}}$ as an inner proof and adds the corresponding derivation logic. The consolidated evaluation therefore answers the research question in favor of the monolithic approach for this use case. At the same time, it is important to consider Plonky2 in isolation. Here, the recursive realization with Poseidon-based key derivation clearly outperforms the monolithic variant, reducing proof generation time from $85.05\,s$ to $18.39\,s$ and proof size from $179.6\,kB$ to $163\,kB$. This indicates that, although Plonky2 recursion does not yet reach the efficiency of Groth16, it already provides tangible benefits over a monolithic Plonky2 instantiation. In the following section, we develop a formal cost model to explain the observed performance differences and to determine the parameter ranges in which recursion would become asymptotically competitive.
+
+\begin{table}[ht]
+	\centering
+	\begin{tabular}{lccc}
+		\toprule
+		\textbf{Metric} & \textbf{Monolithic (Groth16)} & \textbf{Monolithic (Plonky2)} & \textbf{Recursive (Plonky2)} \\
+		\midrule
+		\multicolumn{4}{l}{\emph{Shared metrics}} \\
+		\midrule
+		Proof generation      & 8.24\,s     & 85.05\,s     & 18.39\,s \\
+		Proof verification    & 0.01\,s     & 0.01\,s      & 0.01\,s \\
+		Proof size            & 803\,B      & 179.6\,kB    & 159.2\,kB \\
+		\midrule
+		\multicolumn{4}{l}{\emph{System-specific metrics}} \\
+		\midrule
+		Non-linear constraints & 1\,320\,870 & --           & -- \\
+		Linear constraints     & 429\,368    & --           & -- \\
+		Circuit compilation    & 99.96\,s    & --           & -- \\
+		Witness generation     & 65.93\,s    & --           & -- \\
+		Trusted setup          & 504.42\,s   & --           & -- \\
+		Key export             & 0.69\,s     & --           & -- \\
+		Circuit rows           & --          & 262\,144     & 65\,536 \\
+		Circuit build time     & --          & 48.19\,s     & 9.52\,s \\
+		\bottomrule
+	\end{tabular}
+	\caption{Performance metrics of optimized implementations.}
+	\label{tab:consolidated-performance}
+\end{table}
+
+
+\paragraph{Theoretical cost models}
+The observed performance gap can be understood by placing the prover cost functions of Groth16, Plonky2, and Nova side by side:
+\[
+\begin{aligned}
+	T_{\text{Groth16}}(N) &\;\approx\; \alpha_{\text{\acrshort{msm}}}\,N \;+\; \beta_{\text{FFT}}\,N\log N,\\
+	T_{\text{Plonky2}}(N) &\;\approx\; \alpha_{\text{FFT}}\,N\log N \;+\; \beta_{\text{Merkle}}\,N\log N \;+\; \gamma_{\text{\acrshort{fri}}}\,N,\\
+	T_{\text{Nova}}(k,N_0) &\;\approx\; \beta_{\text{init}} \;+\; k\big(\alpha_{\text{\acrshort{r1cs}}}N_0 \;+\; \gamma_{\text{fold}}\big).
+\end{aligned}
+\]
+
+\emph{Comparative insight.}
+Groth16 scales essentially linearly with comparatively small constants (batched \acrshort{msm} and efficient \acrshort{fft}s) and yields constant-size proofs, which matches the single, mid-sized circuit $\pi_{\text{cred-bind}}$ well. Plonky2, while transparent and recursion-friendly, carries larger constant factors from its \acrshort{fft}–Merkle–\acrshort{fri} pipeline and operates on an evaluation domain rounded to the next power of two, i.e., $N_{\mathrm{eff}}=2^{\lceil\log_2 N\rceil}$, where $N_{\mathrm{eff}}$ denotes the effective circuit size after power-of-two padding imposed by Plonky2’s domain construction. This padding fixes the amount of \acrshort{fft}, Merkle, and \acrshort{fri} work irrespective of small gate savings. In the recursive composition used here, the outer proof $\pi_{\text{key-bind}}$ embeds the inner $\pi_{\text{cred-bind}}$ and replays its \acrshort{fri} queries and Merkle openings via a verifier gadget, adding non-trivial per-instance overhead. Nova offers constant verifier cost and per-step linear proving with a constant folding term, making it asymptotically attractive for long pipelines, but current tooling and curve support prevents applying it to the secp256r1 or secp256k1 setting considered here. Together, these effects explain why Plonky2 is slower than Groth16 for a single mid-sized instance in our measurements and motivate the break-even analysis that follows.
+
+\paragraph{Break-even analysis}  
+An important and somewhat unexpected outcome of our evaluation is that, in a cross-prover comparison, recursion does not provide an advantage over monolithic Groth16 proofs. Intuitively, one might expect recursion to become favorable once individual circuits are moderately large, since recursive systems are often presented as a way to compress or amortize proving costs. In our setting, however, this intuition does not hold. When contrasting a \emph{one-step recursive} realization in Plonky2 with a \emph{monolithic Groth16} prover for the same statement size~$N$, the opposite effect is observed. Let $v(N)$ denote the size in gates of the Plonky2 verifier circuit that verifies a proof of size~$N$. According to the cost models introduced above, recursion would only be beneficial if:
+\[
+T_{\text{prover}}^{\text{Plonky2}}(N) \;+\;
+T_{\text{prover}}^{\text{Plonky2}}\!\big(v(N)\big)
+\;\le\;
+T_{\text{prover}}^{\text{Groth16}}(N).
+\]
+This inequality reflects the cross-prover perspective adopted in our evaluation, where we ask whether a single recursive Plonky2 proof can replace a single monolithic Groth16 proof. If, by contrast, one were to compare functional equivalence (i.e., two Groth16 proofs vs. one recursive Plonky2 proof), the right-hand side would have to be scaled accordingly by a factor of two. Equivalently, define the advantage function as:
+\[
+\Delta(N)
+:= T_{\text{prover}}^{\text{Groth16}}(N)
+- T_{\text{prover}}^{\text{Plonky2}}(N)
+- T_{\text{prover}}^{\text{Plonky2}}\!\big(v(N)\big).
+\]
+Therefore, recursion is beneficial iff $\Delta(N)\ge 0$. Two structural factors govern $\Delta(N)$. First, the size of the verifier circuit $v(N)$ is critical. The outer proof must re-execute Merkle-path checks and \acrshort{fri} query verifications of the inner proof, which substantially inflates $v(N)$. Unless the verifier is very small, this overhead quickly dominates. Second, the constant factors inherent in the Plonky2 pipeline matter significantly. The prover is dominated by hashing, Merkle construction, and \acrshort{fft}/\acrshort{fri} routines. Only substantial engineering improvements in these kernels would lower $T_{\text{prover}}^{\text{Plonky2}}(\cdot)$ enough to shift the balance in favor of recursion. At our evaluated instance $N=N_{\!\mathrm{exp}}$, we measured:
+\[
+T_{\text{prover}}^{\text{Groth16}}(N_{\!\mathrm{exp}})=8.24\,\text{s},\qquad
+T_{\text{prover}}^{\text{Plonky2}}(N_{\!\mathrm{exp}})
++ T_{\text{prover}}^{\text{Plonky2}}\!\big(v(N_{\!\mathrm{exp}})\big)
+= 18.39\,\text{s}.
+\]
+Hence $\Delta(N_{\!\mathrm{exp}})<0$. In other words, one-step recursion does not break even at this scale. Our experiments with serial and parallel recursion confirm this. Their final proof generation times ($\approx$18.30\,s) were still slower than the monolithic Groth16 baseline, so recursion offered no advantage in these variants either. For Plonky2, the verifier overhead $v(N)$ remains too large relative to the inner circuit, and padding effects exacerbate this gap. For Nova, the situation is conceptually different. Its folding scheme ensures that each additional step adds only linear cost in the step size plus a small constant for folding, while proof size and verifier runtime remain constant in the recursion depth. This means that Nova has a well-defined break-even regime. Once the number of steps $k$ is large enough, the accumulated Groth16 prover cost for $kN_0$ constraints will inevitably outgrow Nova’s linear growth. In other words, Nova becomes asymptotically favorable in long pipelines or iterative computations. In our case, the number of steps is too small to amortize the initialization term $\beta_{\text{init}}$, so the theoretical advantage of Nova does not manifest.
+
+From a system-internal perspective, recursion in Plonky2 becomes beneficial whenever the cost of proving the verifier circuit $v(N)$ is smaller than the cost of generating another monolithic proof of size $N$. Formally, this requires:
+\[
+T_{\text{Plonky2}}(v(N)) \;\le\; T_{\text{Plonky2}}(N).
+\]
+In words, the recursive strategy is advantageous if the additional outer proof that re-verifies the inner proof incurs less cost than constructing a second monolithic proof from scratch. According to our measurements, this condition is clearly satisfied, since the verifier circuit is substantially smaller than the original statement circuit ($v(N)\ll N$). This explains why the recursive Plonky2 realization outperforms the monolithic Plonky2 baseline, even though it still falls short of Groth16 in a cross-prover comparison.

@@ -1,0 +1,214 @@
+\chapter{Construction}
+\label{chap:construction}
+In this chapter we present the core construction of the proposed \acrshort{zkp}-based system that enables users to prove a privacy-preserving cryptographic relationship between a verified digital identity credential and a blockchain wallet without revealing either element. We introduce the system model and participating roles, formalize the underlying credential and wallet assumptions, and describe the staged proof architecture comprising credential–wallet binding and derived key binding. The chapter further describes security properties of this construction.
+
+\section{System overview and roles}
+\label{sec:system-overview}
+
+The system enables privacy-preserving compliance with regulatory requirements by linking a user's legally verified digital identity to their control over a blockchain wallet, without revealing sensitive information or compromising unlinkability. To achieve this, two complementary \acrshort{zksnark}-based proof systems are defined. The first, referred to as the \textit{credential–wallet binding proof}, demonstrates possession of a valid \acrshort{eudi} credential together with control over a blockchain wallet represented by a public key. The second, the \textit{derived key binding proof}, shows that a child public key used for on-chain interaction has been correctly derived from a parent public key, and recursively verifies a credential–wallet binding proof to preserve the linkage between the wallet and the credential.
+
+\paragraph{System model}
+The system is defined as a tuple $\mathcal{S} = (\mathcal{P}, \mathcal{I}, \mathcal{V}, \mathcal{W}_{\text{eid}}, \mathcal{W}_{\text{bc}}, \mathcal{C})$. We use uppercase symbols such as $C$ to denote abstract objects in the system model, whereas the corresponding lowercase symbols (e.g., $c$) are used for concrete instances or algorithmic inputs. The components of the model are described in the following.
+
+\medskip
+\textbf{Prover $\mathcal{P}$}: An entity that holds a valid \acrshort{eudi} credential and controls a blockchain wallet. The prover generates \acrshort{zksnark} proofs to demonstrate possession of both the \acrshort{eudi} credential and the blockchain wallet’s secret key material, without disclosing either component to the verifier. This entity is typically represented by an end user participating in a Web3 interaction.
+
+\medskip
+\textbf{Issuer $\mathcal{I}$}: A trusted authority responsible for issuing \acrshort{eudi}-compliant credentials. The credentials are signed using \acrshort{ecdsa} over the P-256 curve and contain a \texttt{cnf} claim that binds the credential to a public key controlled by the prover.
+
+\medskip
+\textbf{Verifier $\mathcal{V}$}: The entity that verifies the \acrshort{zksnark} proofs. It receives a parent or derived public key as input and verifies that the prover possesses the corresponding secret keys and a valid credential, without learning any information about the credential’s content, the secret keys, or the prover’s identity.
+
+\medskip
+\textbf{\acrshort{eudi} Wallet $\mathcal{W}_{\text{eid}}$}: A secure environment controlled by the prover that stores key pairs $(sk, pk)$ used for identity binding, as well as credentials. The secret keys and the credentials are used as private witnesses in the \acrshort{zksnark} proofs.
+
+\medskip
+\textbf{Credential $\mathcal{C}$}: A digitally signed, \acrshort{eudi}-compliant credential issued by a trusted authority, stored within an \acrshort{eudi} Wallet. It includes a \texttt{cnf} claim that cryptographically binds it to a public key under the prover’s control.
+
+\medskip
+\textbf{Blockchain Wallet $\mathcal{W}_{\text{bc}}$}: A \acrshort{hd} wallet used by the prover to manage pseudonymous interactions in blockchain systems. It maintains a tuple $(sk_0, pk_0, cc_0)$ consisting of a secret key, the corresponding public key, and the chain code. Each non-hardened derivation at index $\mathit{i}$ yields a child public key $\mathit{pk}_i$ together with a derived chain code $\mathit{cc}_i$, while the corresponding secret key $\mathit{sk}_i$ can be obtained by the holder of $\mathit{sk}_0$. In our proof construction, all secret keys are treated as private witnesses.
+
+\medskip
+Each prover $P$ controls one \acrshort{eudi} Wallet $\mathcal{W}_{\text{eid}}$ and one blockchain wallet $\mathcal{W}_{\text{bc}}$, each containing the respective key material as described above. The \acrshort{eudi} Wallet includes at least one credential $\mathcal{C}$ that has been issued by an issuer $I$. This model defines the baseline for the \acrshort{zksnark} proof constructions.
+
+\paragraph{Proof composition strategy}
+The proof logic is structured as follows:
+
+\medskip
+\textbf{Credential–wallet binding} ($\pi_{\text{cred-bind}}$): The prover demonstrates knowledge of the secret key $\mathit{sk}_c$ corresponding to the public key $\mathit{pk}_c$ embedded in the \acrshort{eudi} credential, thereby proving possession of the credential. In addition, the prover demonstrates control over a blockchain wallet secret key $\mathit{sk}_0$ corresponding to some blockchain wallet public key $\mathit{pk}_0$.
+
+\medskip	
+\textbf{Derived key binding} ($\pi_{\text{key-bind}}$): The prover demonstrates that a derived public key $\mathit{pk}_i$ was correctly computed from a parent public key $\mathit{pk}_0$ of the blockchain wallet using a BIP32-compatible (non-hardened) derivation at index $\mathit{i}$.
+
+\medskip	
+Proof $\pi_{\text{cred-bind}}$ can be used independently to establish a privacy-preserving link between a user's verified identity and some key within their \acrshort{hd} wallet, which already suffices for regulatory compliance while preserving unlinkability and data minimization. The derived key binding proof $\pi_{\text{key-bind}}$ is optional and can be layered on top to attest that a specific on-chain key $\mathit{pk}_i$ descends from the credential-bound parent key $\mathit{pk}_0$. In the recursive composition, $\pi_{\text{key-bind}}$ verifies $\pi_{\text{cred-bind}}$ and enforces a consistency constraint that the parent public key used for child public key derivation equals the blockchain wallet public key bound in $\pi_{\text{cred-bind}}$. In our implementation (Chapter~\ref{chap:implementation-evaluation}), we realize $\pi_{\text{cred-bind}}$ as a monolithic circuit and $\pi_{\text{key-bind}}$ as an outer circuit that recursively verifies $\pi_{\text{cred-bind}}$, enabling an efficiency comparison. Both variants are designed to be non-interactive and efficiently verifiable.
+
+\section{Credential and wallet assumptions}
+\label{sec:credential-wallet-assumptions}
+
+\paragraph{Credential model}
+In this system, credentials follow the \acrshort{sdjwt} format as described in Section~\ref{sec:eudi-wallet}. They are assumed to be signed by a trusted issuer using \acrshort{ecdsa} over the curve \emph{secp256r1 (P-256)}, and for simplicity a single issuer is considered for the entire system. Mechanisms for credential revocation, as well as time-based validity checks such as issuance or expiration dates, are not modeled. Accordingly, a credential is regarded as valid if and only if its digital signature verifies correctly under the issuer’s public key.
+
+\paragraph{Blockchain wallet model}
+The wallet follows a \acrshort{hd} structure based on \acrshort{bip32} as defined in Section~\ref{sec:blockchain-wallets}. It consists of a master secret key $\mathit{msk}$, a corresponding master public key $\mathit{mpk}$, and optional child keys derived from the master key. The relation $mpk = G \cdot msk$ holds for the base point $G$ on the chosen elliptic curve \emph{secp256k1}, which is the standard curve used in Bitcoin and Ethereum. For non-hardened derivation, child public keys are computed as $pk_i = \texttt{KeyDer}(pk_p, cc_p, i)$, where $\mathit{i}$ is a derivation index and $\mathit{cc}$ denotes the chain code.
+
+\section{Proof design}
+\label{sec:proof-design}
+
+\paragraph{Setup phase}
+Prior to defining the \acrshort{zksnark} proof statements, certain preparatory steps must be completed. These include the deterministic generation of cryptographic key material and the issuance of a digitally signed \acrshort{eudi} credential. These operations produce essential values that serve as public inputs or private witnesses in the subsequent proof constructions.
+
+\medskip	
+\textit{Key generation.}
+The prover begins by generating two independent key pairs for identity and blockchain interactions. First, a key pair $(sk_c, pk_c) = \texttt{KeyGen}(s_c)$ is generated for use with the \acrshort{eudi} Wallet. This key pair serves as the cryptographic anchor in the issued identity credential and is derived from a uniformly sampled seed $s_c$. Second, the prover initializes a \acrshort{hd} wallet using a separate seed $s_0$, which yields a master secret key $\mathit{sk}_0$, a corresponding master public key $\mathit{pk}_0$, and an initial chain code $\mathit{cc}_0$, i.e., $(sk_0, pk_0, cc_0) = \texttt{KeyGen}(s_0)$. Finally, the prover deterministically derives a child public key $pk_i = \texttt{KeyDer}(pk_0, cc_0, i)$ from the \acrshort{hd} wallet using a fixed derivation index $\mathit{i}$.
+
+\medskip	
+\textit{Credential issuance.}
+To obtain a digitally signed \acrshort{eudi} credential, the prover submits a request to a trusted issuer. This request includes an attribute set $\mathit{attrs}$ and the public key $\mathit{pk}_c$. The issuer responds by issuing an \acrshort{eudi} credential $c \leftarrow \texttt{Issue}(attrs, pk_c, sk_I)$, which is bound to $\mathit{pk}_c$ via the \texttt{cnf} claim and digitally signed using \acrshort{ecdsa}. Here, $c$ encapsulates the attributes, the bound public key $\mathit{pk}_c$, and the issuer’s digital signature $\sigma$.
+
+\medskip	
+\textit{Resulting prover state.}
+At the end of this initialization phase, the prover holds an \acrshort{eudi} wallet with key pair $(sk_c, pk_c)$, a digitally signed \acrshort{eudi} credential $\mathit{c}$ bound to the prover via $\mathit{pk}_c$, a blockchain wallet with $(sk_0, pk_0, cc_0)$, and a derived public key $\mathit{pk}_i$ representing a blockchain address under the prover’s control. These elements serve as public statements or as private witnesses in the proof constructions described below.
+
+\paragraph{Protocol execution}
+Both succeeding proofs are realized as \acrshort{zksnark}s for NP relations $R_C \subseteq \mathcal{X} \times \mathcal{W}$, where each relation $R_C$ is defined by the statements $x$ and witnesses $w$ that satisfy the constraints encoded by the respective circuit $C$. Following Definition~\ref{def:zksnark}, the execution of either proof is captured by the generic interface $\pi \gets \texttt{Prove}(\mathsf{pp}_C, x, w)$ and verification succeeds if $\texttt{Verify}(\mathsf{pp}_C, x, \pi) \overset{?}{=} 1$, with public parameters $\mathsf{pp}_C$ associated with circuit $C$. The concrete form of $\mathsf{pp}_C$ depends on the underlying proof system (cf. Section~\ref{sec:zksnarks}), but for the purpose of our construction we treat $\mathsf{pp}_C$ as fixed and globally available once the circuit $C$ is defined.
+
+\paragraph{Credential–wallet binding proof (monolithic)}
+The proof $\pi_{\text{cred-bind}}$ is defined as a monolithic \acrshort{zksnark} over a circuit $C_{\text{cred-bind}}$ that proves knowledge of secrets linking a valid issuer-signed \acrshort{eudi} credential to a blockchain wallet under the prover’s control. The construction relies on key material and credentials generated during the setup phase. The circuit operates over public inputs $x = (pk_I, pk_0)$ and private witnesses $w = (c, sk_c, sk_0)$. Here, $\mathit{pk}_I$ denotes the public key of the credential issuer, and $\mathit{pk}_0$ is a public key of the prover’s blockchain wallet. The witness $w$ contains the signed \acrshort{eudi} credential $c$, the secret key $\mathit{sk}_c$ corresponding to the credential-bound public key $\mathit{pk}_c$, and the secret key $\mathit{sk}_0$ corresponding to $\mathit{pk}_0$. 
+
+\medskip
+The circuit $C_{\text{cred-bind}}$ enforces four constraints, which we denote by $C_{\text{cred-bind}}^{(i)}$, where $i \in \{1,2,3,4\}$ refers to the respective constraint index. The first constraint, $C_{\text{cred-bind}}^{(1)}$, ensures the correctness of the credential key by requiring $pk_c = \texttt{KeyDer}(sk_c)$, thereby asserting knowledge of the secret key $\mathit{sk}_c$ corresponding to the credential public key $\mathit{pk}_c$. The second constraint, $C_{\text{cred-bind}}^{(2)}$, enforces credential ownership by requiring consistency between the public key $\mathit{pk}_c$ established in $C_{\text{cred-bind}}^{(1)}$ and the public key embedded in the credential via the \texttt{cnf.jwk} field, i.e., $pk_c = c.\texttt{cnf.jwk}$, and thus binds the credential to the prover. The third constraint, $C_{\text{cred-bind}}^{(3)}$, establishes credential validity by verifying $\texttt{Verify}(pk_I, c) = 1$, ensuring that the credential $c$ has been correctly signed by the trusted issuer under the public key $\mathit{pk}_I$. Finally, the fourth constraint, $C_{\text{cred-bind}}^{(4)}$, enforces blockchain wallet control by requiring $pk_0 = \texttt{KeyDer}(sk_0)$, thereby asserting knowledge of the secret key $\mathit{sk}_0$ corresponding to the wallet public key $\mathit{pk}_0$. 
+
+\medskip
+The monolithic construction is instantiated as a \acrshort{zksnark} proof with public parameters $\mathsf{pp}_{\text{cred-bind}}$, i.e., $\pi_{\text{cred-bind}} \leftarrow \texttt{Prove}(\mathsf{pp}_{\text{cred-bind}}, x, w)$, and the verifier checks $\texttt{Verify}(\mathsf{pp}_{\text{cred-bind}}, x, \pi_{\text{cred-bind}}) = 1$. This construction yields a non-interactive zero-knowledge proof demonstrating, in a single step, that the prover holds a valid issuer-signed \acrshort{eudi} credential bound to $\mathit{pk}_c$ and controls a blockchain wallet represented by $\mathit{pk}_0$, without disclosing the credential itself or secret key material. 
+
+\paragraph{Derived key binding proof (recursive)}
+As outlined in Section~\ref{sec:blockchain-wallets}, blockchain wallets adhere to a hierarchical deterministic structure, where child keys are systematically derived from parent keys using key derivation algorithms. Within our construction, this hierarchical model enables a modular proof design. Instead of re-establishing the full credential–wallet binding for every newly generated public key, we leverage the recursive composition of proofs. Once a public key $\mathit{pk}_0$ has been bound to the prover’s identity through the credential–wallet binding proof~$\pi_{\text{cred-bind}}$, the derived key binding proof~$\pi_{\text{key-bind}}$ attests that a new public key $\mathit{pk}_i$ is correctly derived from $\mathit{pk}_0$. As noted in Section~\ref{sec:blockchain-wallets}, we restrict attention to a flat derivation setting, in which $\mathit{pk}_i$ is obtained in a single non-hardened step from the account-level key $\mathit{pk}_0$. In this way, recursive proof verification in combination with public key derivation logic extends the identity binding transitively from $\mathit{pk}_0$ to $\mathit{pk}_i$, thereby preserving both soundness and succinctness of the overall argument.
+
+Formally, the proof $\pi_{\text{key-bind}}$ is realized as a recursive \acrshort{zksnark} over a circuit $C_{\text{key-bind}}$ that verifies two properties in combination. It internally verifies the correctness of the credential–wallet binding proof~$\pi_{\text{cred-bind}}$ for the keys $(pk_I, pk_0)$, and it proves knowledge of the chain code $\mathit{cc}_0$ that, together with the public derivation index~$\mathit{i}$, yields a correctly derived child key $\mathit{pk}_i$ from the parent key $\mathit{pk}_0$. The construction relies on non-hardened BIP32-compatible derivation and is designed such that the parent public key is not revealed. The circuit takes as public inputs $x = (pk_I, pk_i, cc_0, i)$ and as private witnesses $w = (pk_0, \pi_{\text{cred-bind}})$. Here, $\mathit{pk}_I$ denotes the issuer’s public key, $\mathit{pk}_0$ is the blockchain wallet key that was previously proven to be bound to the credential, $\mathit{pk}_i$ is a child key derived from $\mathit{pk}_0$, $\mathit{i}$ is a public non-hardened derivation index, and $\mathit{cc}_0$ is the chain code associated with $\mathit{pk}_0$. The witness additionally contains the recursive proof~$\pi_{\text{cred-bind}}$, which attests that under the issuer’s public key $\mathit{pk}_I$, a valid credential has been issued that binds the wallet key $\mathit{pk}_0$ to the prover’s identity. 
+
+\medskip
+The circuit $C_{\text{key-bind}}$ enforces four constraints that combine recursive verification with hierarchical key derivation. For consistency of notation, the constraints are denoted $C_{\text{key-bind}}^{(i)}$, where $i \in \{1,2,3,4\}$ also refers to the respective constraint index. The proof $\pi_{\text{cred-bind}}$ attests membership in the relation $R_{\text{cred-bind}}$ for some input tuple $x_{\text{cred-bind}} = (pk_I^{\text{cred-bind}}, pk_0^{\text{cred-bind}})$. These values are not provided explicitly as inputs to $C_{\text{key-bind}}$, but they can be referenced inside the circuit as part of the recursive verification logic. The first constraint, $C_{\text{key-bind}}^{(1)}$, enforces public key consistency. It requires that  
+$pk_0^{\text{key-bind}} = pk_0^{\text{cred-bind}}$, thereby ensuring that the parent key used in the derivation logic of $C_{\text{key-bind}}$ is the same as the wallet key that was previously bound to the credential in $\pi_{\text{cred-bind}}$. This consistency guarantees that identity binding is not broken when the relation is extended to derived keys. The second constraint, $C_{\text{key-bind}}^{(2)}$, enforces issuer key consistency. It states that $pk_I^{\text{key-bind}} = pk_I^{\text{cred-bind}}$, so that the issuer public key referenced in the recursive proof is identical to the one originally used for credential verification. The third constraint, $C_{\text{key-bind}}^{(3)}$, enforces the correctness of child key derivation by checking $pk_i = \texttt{KeyDer}(pk_0, cc_0, i)$. This ensures that the derived key $\mathit{pk}_i$ is generated from the parent key $\mathit{pk}_0$ and chain code $\mathit{cc}_0$ under the given derivation index $\mathit{i}$, following the non-hardened derivation rules of BIP32. This enforces that $\mathit{pk}_i$ lies within the key hierarchy rooted at $\mathit{pk}_0$, thereby extending the previously established credential–wallet binding to the derived key. The fourth constraint, $C_{\text{key-bind}}^{(4)}$, enforces recursive proof verification. It requires that  
+$\texttt{Verify}(\mathsf{pp}_{\text{cred-bind}}, x_{\text{cred-bind}}, \pi_{\text{cred-bind}}) = 1$, thereby establishing that the proof $\pi_{\text{cred-bind}}$ is valid under the public parameters of the credential–wallet binding relation. This guarantees that the recursive extension to $\mathit{pk}_i$ is anchored in a valid identity binding at the previous layer.
+
+\medskip
+The recursive construction is instantiated as a \acrshort{zksnark} with public parameters $\mathsf{pp}_{\text{key-bind}}$, where $\pi_{\text{key-bind}} \leftarrow \texttt{Prove}(\mathsf{pp}_{\text{key-bind}}, x, w)$ and the verifier accepts if and only if $\texttt{Verify}(\mathsf{pp}_{\text{key-bind}}, x, \pi_{\text{key-bind}}) = 1$. This construction yields a non-interactive zero-knowledge proof demonstrating that a derived child public key $\mathit{pk}_i$ is cryptographically linked to an identity-bound parent key $\mathit{pk}_0$, without revealing sensitive derivation parameters. By embedding the credential–wallet binding proof as a recursive subproof, $\pi_{\text{key-bind}}$ avoids duplicating verification logic and provides a modular argument that the prover’s identity is transitively bound to the derived key. In this way, the construction enables privacy-preserving use of hierarchical wallets in regulatory-compliant settings, while remaining extensible to multi-level derivation paths or hardened steps by iteratively applying the same recursive pattern.
+
+\section{Security properties}
+\label{sec:security-properties}
+This section evaluates our construction with respect to a set of security properties. The goal is not to provide full formal proofs, but to give a structured reduction-based argument that links each property to well-established assumptions. In the following, we describe these properties and argue why they hold. Concretely, our reasoning relies on the security guarantees of the underlying \acrshort{zksnark} system as introduced in Section~\ref{sec:zksnarks}, the cryptographic assumptions of hierarchical deterministic blockchain wallets from Section~\ref{sec:blockchain-wallets}, and the credential and identity wallet model described in Section~\ref{sec:eudi-wallet}.
+
+\paragraph{Credential–wallet binding soundness}
+This property ensures that no adversary can produce a convincing credential–wallet binding proof $\pi_{\text{cred-bind}}$ without actually holding both a valid issuer-signed credential and the secret keys corresponding to the blockchain wallet public key $\mathit{pk}_0$. In other words, a successful proof implies real ownership of the identity credential and control over the wallet. We capture this property via the game-based experiment shown in Figure~\ref{fig:game-cred-bind-sound}.
+
+\begin{figure}[t]
+	\centering
+	\begin{gameproof}[name=\mathsf{Exp}^{\mathsf{CWS}}, arg=(1^{\lambda}), nr=0]
+		\makeatletter
+		\renewcommand\@pc@gametitle[1][]{\ensuremath{\pcgame[\mathcal{A}]\gameprocedurearg}}
+		\makeatother
+		\gameprocedure[linenumbering,mode=text]{%
+			\textbf{Input: } $\mathsf{pp}_{\text{cred-bind}},\, pk_I$ \\
+			\textbf{Adversary: } $(x^*, \pi^*) \gets \mathcal{A}(\mathsf{pp}_{\text{cred-bind}}, pk_I)$ \\
+			\textbf{Success if: } $\texttt{Verify}(\mathsf{pp}_{\text{cred-bind}}, x^*, \pi^*) = 1$ \\
+			\textbf{and } $\mathcal{A}$ does not know $w^*=(c,sk_c,sk_0)$ s.t.\ $C_{\text{cred-bind}}$ holds
+		}
+	\end{gameproof}
+	\caption{Security game for credential–wallet binding soundness.}
+	\label{fig:game-cred-bind-sound}
+\end{figure}
+
+\medskip
+\textit{Reduction sketch.}
+If $\mathcal{A}$ succeeds with non-negligible probability, then by the knowledge soundness of the underlying \acrshort{zksnark} (cf. Definition~\ref{def:zksnark}) there exists an efficient extractor that outputs a valid witness $w^*$. This contradicts the assumption that $\mathcal{A}$ could succeed without possessing such a witness. Moreover, since credential validity requires a correct issuer signature, the property additionally relies on the existential unforgeability of the issuer's digital signature scheme as specified in Section~\ref{sec:eudi-wallet}. Hence, the soundness of $\pi_{\text{cred-bind}}$ reduces to the knowledge soundness of the underlying \acrshort{zksnark} and the unforgeability of the issuer's signature scheme.
+
+\paragraph{Verified derivation}
+This property ensures that no adversary can convince the verifier that a child public key $\mathit{pk}_i$ descends from an identity-bound parent public key unless the child key is \emph{correctly derived} from that very parent under the public derivation parameters. In particular, an accepted proof $\pi_{\text{key-bind}}$ must certify that $pk_i = \texttt{KeyDer}(pk_0, cc_0, i)$ for the \emph{same} parent key $\mathit{pk}_0$ that is bound to the prover's credential in $\pi_{\text{cred-bind}}$. This property is illustrated in a game-based experiment shown in Figure~\ref{fig:game-verified-derivation}.
+
+\begin{figure}[t]
+	\centering
+	\begin{gameproof}[name=\mathsf{Exp}^{\mathsf{VD}}, arg=(1^{\lambda}), nr=0]
+		\makeatletter
+		\renewcommand\@pc@gametitle[1][]{\ensuremath{\pcgame[\mathcal{A}]\gameprocedurearg}}
+		\makeatother
+		\gameprocedure[linenumbering,mode=text]{%
+			\textbf{Input: } $\mathsf{pp}_{\text{key-bind}},\, \mathsf{pp}_{\text{cred-bind}},\, pk_I$ \\[2pt]
+			\textbf{Adversary: } $(x^*, \pi_{\text{key-bind}}^*) \gets \mathcal{A}(\mathsf{pp}_{\text{key-bind}}, \mathsf{pp}_{\text{cred-bind}}, pk_I)$ \\[2pt]
+			\textbf{Success if: } $\texttt{Verify}(\mathsf{pp}_{\text{key-bind}}, x^*, \pi_{\text{key-bind}}^*) = 1$ \\[2pt]
+			\quad\ \textbf{and there do not exist } $pk_0^*, \pi_{\text{cred-bind}}^*$ such that \\[2pt]
+			\quad\ $\texttt{Verify}(\mathsf{pp}_{\text{cred-bind}}, (pk_I, pk_0^*), \pi_{\text{cred-bind}}^*) = 1$ \\[2pt]
+			\quad\textbf{and } $x^* = (pk_I, pk_i^*, cc_0^*, i^*)$ with $pk_i^* = \texttt{KeyDer}(pk_0^*, cc_0^*, i^*)$.
+		}
+	\end{gameproof}
+	\caption{Security game for verified derivation.}
+	\label{fig:game-verified-derivation}
+\end{figure}
+
+\medskip
+\textit{Reduction sketch.}
+If $\mathcal{A}$ wins with non-negligible probability, then either the knowledge soundness of the outer proof $\pi_{\text{key-bind}}$ is violated\footnote{The circuit $C_{\text{key-bind}}$ enforces both the recursive verification of $\pi_{\text{cred-bind}}$ and the equality $pk_i=\texttt{KeyDer}(pk_0,cc_0,i)$.} or, given $\pi_{\text{key-bind}}$ accepts and yields such a witness, the inner proof $\pi_{\text{cred-bind}}$ must be soundly valid for $(pk_I,pk_0)$, which contradicts breaking the condition above. Hence, \emph{Verified Derivation} reduces to the knowledge soundness of the key-bind \acrshort{zksnark}, the soundness of the embedded cred-bind \acrshort{zksnark}, and the functional correctness of the derivation interface $\texttt{KeyDer}(\cdot)$ as specified in Section~\ref{sec:blockchain-wallets}. For the underlying proof system guarantees, we rely on the formal properties of \acrshort{zksnark}s introduced in Section~\ref{sec:zksnarks}.
+
+\paragraph{Transitive identity binding}
+This property states that the identity binding established for a credential-bound wallet key $\mathit{pk}_0$ extends transitively to any correctly derived child key $\mathit{pk}_i$. Concretely, if the prover has established a valid link between the issuer-signed credential and a wallet key $\mathit{pk}_0$ via $\pi_{\text{cred-bind}}$, and subsequently proves that $\mathit{pk}_i$ is correctly derived from $\mathit{pk}_0$ in $\pi_{\text{key-bind}}$, then the identity binding also holds for $\mathit{pk}_i$. This property does not require a separate security game, as it follows directly from the soundness of $\pi_{\text{cred-bind}}$ and the verified derivation property of $\pi_{\text{key-bind}}$.
+
+\paragraph{Witness privacy}
+This property ensures that the verifier learns nothing beyond the truth of the public statements. In particular, the credential $c$ and the secret keys $(sk_c, sk_0)$ remain hidden. Only the publicly declared components $\mathit{pk}_I$, $\mathit{pk}_i$, $\mathit{cc}_0$, and $\mathit{i}$ are revealed. Regarding the blockchain wallet public key $\mathit{pk}_0$, it appears as a public input in the credential–wallet binding proof $\pi_{\text{cred-bind}}$, but is treated as a private witness inside the derived key binding proof $\pi_{\text{key-bind}}$. Hence, in the composed proof transcript, $\mathit{pk}_0$ is no longer exposed to the verifier, which preserves unlinkability. We capture this property via the game-based experiment shown in Figure~\ref{fig:game-witness-privacy}.
+
+\begin{figure}[t]
+	\centering
+	\begin{gameproof}[name=\mathsf{Exp}^{\mathsf{WP}}, arg=(1^{\lambda}), nr=0]
+		\makeatletter
+		\renewcommand\@pc@gametitle[1][]{\ensuremath{\pcgame[\mathcal{A}]\gameprocedurearg}}
+		\makeatother
+		\gameprocedure[linenumbering,mode=text]{%
+			\textbf{Input: } $\mathsf{pp}_{\text{cred-bind}},\, \mathsf{pp}_{\text{key-bind}}$ \\[2pt]
+			\textbf{Oracle access: } For chosen statements $x=(pk_I, pk_i, cc_0, i)$ with witnesses $(c, sk_c, sk_0, pk_0)$ \\[2pt]
+			\quad In the \textsf{Real} world: return honestly generated proofs $(\pi_{\text{cred-bind}}, \pi_{\text{key-bind}})$. \\[2pt]
+			\quad In the \textsf{Sim} world: return simulated proofs for the same statement $x$. \\[4pt]
+			\textbf{Adversary: } $\mathcal{A}$ adaptively queries oracles and outputs a bit $b$. \\[2pt]
+			\textbf{Success if: } 
+			$\bigl| \Pr[b=1 \mid \textsf{Real}] - \Pr[b=1 \mid \textsf{Sim}] \bigr| > \text{negl}(\lambda)$.
+		}
+	\end{gameproof}
+	\caption{Security game for witness privacy.}
+	\label{fig:game-witness-privacy}
+\end{figure}
+
+\medskip
+\textit{Reduction sketch.}
+If $\mathcal{A}$ wins with non-negligible advantage, then it breaks the zero-knowledge property of the underlying \acrshort{zksnark} system (cf. Section~\ref{sec:zksnarks}). The simulator first produces a simulated inner proof $\pi_{\text{cred-bind}}$ for $(pk_I, pk_0)$ and then uses it as witness inside the simulated outer proof $\pi_{\text{key-bind}}$. Since the outer circuit $C_{\text{key-bind}}$ merely verifies $\pi_{\text{cred-bind}}$ and enforces $pk_i=\texttt{KeyDer}(pk_0, cc_0, i)$, simulation proceeds by simulating the inner proof $\pi_{\text{cred-bind}}$ for $(pk_I, pk_0)$ and then simulating the outer proof $\pi_{\text{key-bind}}$ with that inner proof embedded as witness. No additional leakage arises from the recursive step. Thus, the joint transcript remains indistinguishable from an honestly generated one. Therefore, \emph{witness privacy} holds under the zero-knowledge guarantees of the employed proof system as formalized in Section~\ref{sec:zksnarks}.
+
+\paragraph{Unlinkability}
+This property ensures that proofs about derived public keys do not enable an observer to decide whether two keys used on-chain originate from the same blockchain wallet parent public key, beyond what is trivially implied by publicly visible statement components. 
+In our instantiation, $\mathit{pk}_0$ is hidden in the outer proof while $\mathit{cc}_0$ and $\mathit{i}$ are public. If the same $\mathit{cc}_0$ value is reused across proofs, equality of $\mathit{cc}_0$ enables trivial linking. Strong unlinkability therefore requires either treating $\mathit{cc}_0$ as a private witness or ensuring that $\mathit{cc}_0$ is not reused across transcripts shown to the same verifier. This property is illustrated in a game-based experiment shown in Figure~\ref{fig:game-unlinkability}.
+
+\begin{figure}[t]
+	\centering
+	\begin{gameproof}[name=\mathsf{Exp}^{\mathsf{UL}}, arg=(1^{\lambda}), nr=0]
+		\makeatletter
+		\renewcommand\@pc@gametitle[1][]{\ensuremath{\pcgame[\mathcal{A}]\gameprocedurearg}}
+		\makeatother
+		\gameprocedure[linenumbering,mode=text]{%
+			\textbf{Input: } $\mathsf{pp}_{\text{cred-bind}},\, \mathsf{pp}_{\text{key-bind}},\, pk_I$ \\[2pt]
+			\textbf{Setup: } Challenger samples two independent parent tuples
+			$(sk_0^{(0)}, pk_0^{(0)}, cc_0^{(0)})$, $(sk_0^{(1)}, pk_0^{(1)}, cc_0^{(1)})$ \\ 
+			and prepares valid inner proofs $\pi_{\text{cred-bind}}^{(0)},\, \pi_{\text{cred-bind}}^{(1)}$. \\[2pt]
+			\textbf{Challenge: } Challenger flips a hidden bit $b \gets \{0,1\}$ and returns two outer transcripts \\ 
+			$T_1=(pk_I, pk_{i_1}^{(b)}, cc_0^{(b)}, i_1, \pi_{\text{key-bind}}^{(b,1)})$, \\ 
+			$T_2=(pk_I, pk_{i_2}^{(b')}, cc_0^{(b')}, i_2, \pi_{\text{key-bind}}^{(b',2)})$, \\ 
+			where $b'=b$ in the \emph{same-parent} case and $b'=1-b$ in the \emph{different-parents} case. \\[2pt]
+			\textbf{Adversary: } $\mathcal{A}$ outputs a bit $b'$ guessing whether $T_1,T_2$ originate from the same parent. \\[2pt]
+			\textbf{Success if: } $\bigl| \Pr[b'=1 \mid \textsf{same-parent}] - \Pr[b'=1 \mid \textsf{different-parents}] \bigr| > \text{negl}(\lambda)$.
+		}
+	\end{gameproof}
+	\caption{Security game for unlinkability.}
+	\label{fig:game-unlinkability}
+\end{figure}
+
+\medskip
+\textit{Reduction sketch.}
+Assume $\mathcal{A}$ wins with non-negligible advantage. Then, beyond trivial equality tests on $(cc_0, i)$, $\mathcal{A}$ distinguishes whether two accepting transcripts share the same hidden parent key $\mathit{pk}_0$. However, in the outer proof $\mathit{pk}_0$ appears only as a private witness, and the recursive verification reveals no additional information beyond statement correctness (cf. Section~\ref{sec:zksnarks}). Under zero-knowledge, the distributions of accepting transcripts for keys derived from $pk_0^{(0)}$ or $pk_0^{(1)}$ are computationally indistinguishable given only $(pk_I, pk_i, cc_0, i)$ and valid proofs. Hence any non-trivial distinguishing advantage would contradict the zero-knowledge property of the underlying \acrshort{zksnark}. Moreover, no structural property of the BIP32 derivation (Section~\ref{sec:blockchain-wallets}) provides a distinguisher in absence of $\mathit{pk}_0$. Unlinkability therefore holds up to trivial linkage induced by explicitly public, re-used statement components.
+
+\paragraph{Non-interactivity and succinctness}
+Our construction inherits the properties of non-interactivity and succinctness directly from the underlying \acrshort{zksnark} system (cf.~Definition~\ref{def:zksnark}). Both $\pi_{\text{cred-bind}}$ and $\pi_{\text{key-bind}}$ are realized as non-interactive arguments of knowledge, and their recursive composition preserves this property. Similarly, the succinctness guarantee of the base proof system ensures that the resulting proofs remain of constant size and efficiently verifiable, independent of the complexity of the underlying witness relations. No additional assumptions are required beyond those already imposed by the \acrshort{zksnark} framework.

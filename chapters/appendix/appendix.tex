@@ -1,0 +1,85 @@
+\chapter{SD-JWT}
+\label{app:sdjwt}
+The following listing shows a complete decoded \acrshort{sdjwt} including header, payload, and signature, as well as a disclosure array with exemplary identity attributes.
+
+\begin{lstlisting}[caption={Decoded \acrshort{sdjwt} and matching disclosures.}, label={lst:sdjwt-example}, breaklines=true]
+	{
+		"header": {
+			"alg": "ES256",
+			"typ": "SD-JWT"
+		},
+		"payload": {
+			"iss": "https://issuer.example",
+			"sub": "urn:uuid:1234-5678-9012-3456",
+			"iat": 1714579200,
+			"exp": 1746115200,
+			"_sd_alg": "sha-256",
+			"_sd": [
+			"4fc3a4...c7a1",  // hash of ["1a2b3c...", "document_number", "T22000129"]
+			"2fa6bd...9e38",  // hash of ["4d5e6f...", "name", "Doe"]
+			"3a0d5f...a122",  // hash of ["7g8h9i...", "given_name", "John"]
+			"f1e2bc...ab9d",  // hash of ["18a89a...", "date_of_birth", "1990-12-31"]
+			"42c37c...c51d"   // hash of ["c9921e...", "nationality", "German"]
+			],
+			"cnf": {
+				"jwk": {
+					"kty": "EC",
+					"crv": "P-256",
+					"x": "wghji_QRUWDHFkRjwZn6KJeeffJAeTyGkNTLVq9cjaA",
+					"y": "wKYs5i7RfkMhn7L6ehDsYWFwnZkMYwrrJ-a1c46IIeg"
+				}
+			}
+		},
+		"signature": "MEYCIQD...lwIhAIhq7l..."
+	}
+	
+	// Disclosures selectively presented by the user to the verifier
+	[
+	["document_number", "T22000129", "1a2b3c..."],
+	["name", "Doe", "4d5e6f..."],
+	["given_name", "John", "7g8h9i..."],
+	["date_of_birth", "1990-12-31", "18a89a..."],
+	["nationality", "German", "c9921e..."]
+	]
+\end{lstlisting}
+
+\chapter{Fixed-base scalar multiplication}
+\label{app:fixed-base}
+We provide a more formal treatment of the window decomposition and selection steps used in the fixed-base scalar multiplication optimization.
+
+\begin{definition}[Window decomposition]
+	Let $\lambda$ be the bit length of the scalar $u \in \mathbb{Z}_n$ and $s \in \mathbb{N}$ the window size.
+	We decompose $u$ into $t=\lceil \tfrac{\lambda}{s}\rceil$ windows of $s$ bits each:
+	\[
+	u = \sum_{i=0}^{t-1} v_i 2^{si}, \qquad v_i \in \{0,\dots,2^s-1\}.
+	\]
+	The tuple $(v_0,\dots,v_{t-1})$ is uniquely determined by the binary expansion of $u$.
+\end{definition}
+
+\begin{definition}[Precomputation table]
+	For each window position $i \in \{0,\dots,t-1\}$ and each possible value $v \in \{0,\dots,2^s-1\}$ we define the precomputed multiples
+	\[
+	P_{i,v} = v \cdot 2^{si} Q \in E(\mathbb{F}_p),
+	\]
+	where $Q$ is the fixed base point (in our case the issuer’s public key $Q_I$).
+	The full precomputation table is therefore
+	\[
+	\mathcal{T} = \{ P_{i,v} : 0 \leq i < t,\; 0 \leq v < 2^s \}.
+	\]
+\end{definition}
+
+\begin{definition}[Algebraic selection]
+	Given the window value $v_i$ at position $i$, the corresponding point $M_i$ is selected from the table by evaluating
+	\[
+	M_i = \sum_{v=0}^{2^s-1} \delta_{v,v_i} \cdot P_{i,v},
+	\]
+	where $\delta_{v,v_i}$ is the Kronecker delta, realized in-circuit via multiplexer constraints.
+\end{definition}
+
+\begin{definition}[Fixed-base multiplication]
+	The scalar multiplication $[u]Q$ is obtained as
+	\[
+	[u]Q = \sum_{i=0}^{t-1} M_i,
+	\]
+	requiring $t-1$ elliptic-curve additions after table lookups.
+\end{definition}

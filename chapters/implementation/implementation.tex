@@ -1,0 +1,14 @@
+\chapter{Implementation and evaluation}
+\label{chap:implementation-evaluation}
+In this chapter, we present the practical realization of the construction introduced in Chapter~\ref{chap:construction} and provide an empirical evaluation of its performance. While the preceding chapter established the theoretical soundness of the approach, the objective here is to assess its feasibility when instantiated in concrete zero-knowledge proof systems and to analyze the efficiency implications of specific design choices. The chapter therefore bridges the gap between abstract protocol descriptions and executable systems, turning formal statements into measurable artifacts. In doing so, it directly addresses the central research question of this thesis, namely whether a monolithic or a recursive composition offers better efficiency in practice.
+
+Throughout the chapter, we emphasize three aspects. First, we identify SNARK-friendly\footnote{We use the term \emph{SNARK-friendly} to refer to primitives whose algebraic structure minimizes the number of constraints when mapped into arithmetic circuits, such as Poseidon hashes or elliptic curves with efficient modular arithmetic.} primitives and encodings that reduce the arithmetic overhead of implementing cryptographic sub-protocols, such as elliptic-curve verification. Second, we highlight optimization techniques that substantially improve efficiency. Third, we provide a systematic evaluation of proof size, proving time, and verification time, thereby quantifying the trade-offs between monolithic and recursive instantiations. In addition, we complement these empirical measurements with simplified cost models that highlight the dominant factors in each proof system and allow us to analyze under which conditions recursion becomes more efficient than a monolithic construction. This situates our evaluation within a broader landscape of proof-system trade-offs.
+
+The complete implementation is publicly available on GitHub\footnote{\url{https://github.com/sommer-ph/eudi-web3-bridge}} and comprises approximately \emph{12000} lines of code. It spans multiple languages and toolchains. The backend is written in Java, the monolithic prover is implemented in Circom (compiled to Groth16), and the recursive provers (Plonky2 and Nova) are realized in Rust. While the primary implementation resides in this repository, some optimizations required modifications to external libraries (e.g., non-native arithmetic support in Circom and Plonky2). These were integrated into forked versions of the respective libraries and are referenced in the relevant sections of this chapter.
+
+\input{chapters/implementation/system-architecture}
+\input{chapters/implementation/preprocessing}
+\input{chapters/implementation/monolithic}
+\input{chapters/implementation/recursive-plonky2}
+\input{chapters/implementation/recursive-nova}
+\input{chapters/implementation/performance-cost-analysis}

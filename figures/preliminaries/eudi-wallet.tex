@@ -1,0 +1,36 @@
+\providecommand{\EudiFigure}{	
+	\begin{figure}[h!]
+		\centering
+		\begin{tikzpicture}[
+			font=\sffamily\small,
+			node distance=0.7cm,
+			box/.style={draw, rounded corners, fill=gray!10, minimum width=6cm, minimum height=1.4cm, align=left},
+			centerlabel/.style={font=\bfseries\large, align=center},
+			arr/.style={-Stealth, thick}
+			]
+			
+			\node[centerlabel] at (0,6.6) {EUDI Wallet Architecture};
+			
+			\node[centerlabel] at (0,5.8) {Protocol layer};
+			\node[box] (oid4vci) at (-3,4.8) {\textbf{OID4VCI} \\ Receive credentials from issuer};
+			\node[box] (oid4vp) at (3,4.8) {\textbf{OID4VP} \\ Present credentials to verifier};
+			
+			\node[centerlabel] at (0,3.6) {Credential layer};
+			\node[box] (cred1) at (-3,2.6) {\textbf{Verifiable Credential 1}\\ Claims: name, birthdate};
+			\node[box] (cred2) at (3,2.6) {\textbf{Verifiable Credential 2}\\ Claims: nationality};
+			
+			\node[centerlabel] at (0,1.4) {Crypto layer};
+			\node[box] (crypto1) at (-3,0.4) {\textbf{Key Pair 1}\\ $sk_1$, $pk_1$ \\ Bound to cred1 ($pk_1$ in cnf)};
+			\node[box] (crypto2) at (3,0.4) {\textbf{Key Pair 2}\\ $sk_2$, $pk_2$ \\ Bound to cred2 ($pk_2$ in cnf)};
+			
+			\draw[arr] (oid4vci) -- (cred1);
+			\draw[arr] (oid4vp) -- (cred2);
+			
+			\draw[arr] (cred1) -- (crypto1);
+			\draw[arr] (cred2) -- (crypto2);
+			
+		\end{tikzpicture}
+		\caption{Modular components of the EUDI Wallet reference implementation.}
+		\label{fig:eudi-wallet}
+	\end{figure}
+}
